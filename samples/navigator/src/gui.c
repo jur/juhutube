@@ -27,6 +27,24 @@
 #define BORDER_Y 40
 #define DIST_FORCED_LINE_BREAK 10
 
+/** Maximum value for scroll counter, slows down the scrolling of text. */
+#ifdef __mipsel__
+#define SCROLL_COUNT_MAX 7
+#else
+#define SCROLL_COUNT_MAX 20
+#endif
+/** Start value for counting frames until text is scrolled by one pixel. */
+#ifdef __mipsel__
+#define SCROLL_COUNT_START 6
+#else
+#define SCROLL_COUNT_START 16
+#endif
+/** Same as SCROLL_COUNT_START but when the end of the text is reached and it
+ * should scroll into the other direction. This should be a smaller value, so
+ * the scrolling shortly stops. So the user has time to read the text completely.
+ * Otherwise the outsider letters would only be seen for a very short time. */
+#define SCROLL_COUNT_END 0
+
 #define CASESTATE(state) \
 	case state: \
 		return #state;
@@ -70,37 +88,69 @@ const char *get_state_text(enum gui_state state)
 	return "unknown";
 }
 
-
+/** The structure describes a YouTube video (playlist item). */
 struct gui_elem_s {
+	/** Small thumbnail of video. */
 	SDL_Surface *image;
+	/** Medium size thumbnail of video. */
 	SDL_Surface *imagemedium;
+	/** Load counter for small thumbnail of image. */
 	int loaded;
+	/** Load counter for medium size thumbnail of image. */
 	int loadedmedium;
+	/** URL to small thumbnail. */
 	const char *url;
+	/** URL to medium size thumbnail. */
 	const char *urlmedium;
+	/** Pointer to next video in list. */
 	gui_elem_t *prev;
+	/** Pointer to previous video in list. */
 	gui_elem_t *next;
+	/** Video title */
 	char *title;
+	/** Video nr in playlist. */
 	int subnr;
+	/** Token to get the next elements via the YouTube API. */
 	char *nextPageToken;
+	/** Token to get the previous elements via the YouTube API. */
 	char *prevPageToken;
+	/** Scroll position of text. */
+	int textScrollPos;
+	/** Scroll direction. */
+	int textScrollDir;
+	/** Counter to delay text scrolling. */
+	int textScrollCounter;
 };
 
+/** The structure describes a category (e.g. favorites or subscribed channel). */
 struct gui_cat_s {
+	/** First element of playlist items (YouTube videos). */
 	gui_elem_t *elem;
+	/** Currently selected YouTube video. */
 	gui_elem_t *current;
+	/** YouTube channel ID. */
 	char *channelid;
+	/** YouTube playlist ID. */
 	char *playlistid;
+	/** Pointer to previous category in list. */
 	gui_cat_t *prev;
+	/** Pointer to next category in list. */
 	gui_cat_t *next;
+	/** Subscription/Channel/Playlist title. */
 	char *title;
+	/** Number of the channel in the list. */
 	int channelNr;
+	/** Token to get the next channel via the YouTube API. */
 	char *channelNextPageToken;
+	/** Number of the favorite. */
 	int favnr;
+	/** Token to get the next favorite via the YouTube API. */
 	char *favoritesNextPageToken;
+	/** Number of the subscription. */
 	int subnr;
 	/** Next page to get more subscriptions. */
 	char *subscriptionNextPageToken;
+	/** Previous page to get more subscriptions. */
 	char *subscriptionPrevPageToken;
 };
 
@@ -113,15 +163,20 @@ struct gui_s {
 	SDL_Rect logorect;
 	/** Pointer to font used to write something on the screen. */
 	TTF_Font *font;
+	/** Pointer to small font used to write something on the screen. */
+	TTF_Font *smallfont;
 
-	/** The heigth of the letters in the youtube logo. */
+	/** The height of the letters in the youtube logo. */
 	int mindistance;
 
 	/** Handle for transfering web content. */
 	transfer_t *transfer;
 
-	/** Categories chown in GUI. */
+	/** Categories chown in GUI. Pointer to first element.
+	 * NULL if empty. categories->prev points to last element.
+	 */
 	gui_cat_t *categories;
+	/** Current selected category. */
 	gui_cat_t *current;
 
 	/** YouTube access. */
@@ -134,6 +189,9 @@ struct gui_s {
 	gui_cat_t *cur_cat;
 };
 
+/**
+ * Like asprintf, but frees buffer if it is not NULL.
+ */
 static char *buf_printf(char *buffer, const char *format, ...)
 {
 	va_list ap;
@@ -198,6 +256,12 @@ gui_t *gui_alloc(void)
 		return NULL;
 	}
 
+	gui->smallfont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", 16);
+	if (gui->smallfont == NULL) {
+		gui_free(gui);
+		return NULL;
+	}
+
 	gui->screen = SDL_SetVideoMode(640, 480, 16, SDL_SWSURFACE);
 	if (gui->screen == NULL) {
 		LOG_ERROR("Couldn't set 640x480x8 video mode: %s\n", SDL_GetError());
@@ -243,6 +307,10 @@ void gui_free(gui_t *gui)
 		if (gui->transfer != NULL) {
 			transfer_free(gui->transfer);
 			gui->transfer = NULL;
+		}
+		if (gui->smallfont != NULL) {
+			TTF_CloseFont(gui->smallfont);
+			gui->smallfont = NULL;
 		}
 		if (gui->font != NULL) {
 			TTF_CloseFont(gui->font);
@@ -295,7 +363,7 @@ void gui_paint_cat_view(gui_t *gui)
 
 		if (cat->title != NULL) {
 			/* Convert text to an image. */
-			sText = TTF_RenderText_Solid(gui->font, cat->title, clrFg);
+			sText = TTF_RenderUTF8_Solid(gui->font, cat->title, clrFg);
 		}
 		if (sText != NULL) {
 			SDL_Rect headerDest = {40, 40, 0, 0};
@@ -331,7 +399,7 @@ void gui_paint_cat_view(gui_t *gui)
 					}
 				}
 				if (current->imagemedium == NULL) {
-					current->imagemedium = TTF_RenderText_Solid(gui->font, "No Thumbnail", clrFg);
+					current->imagemedium = TTF_RenderUTF8_Solid(gui->font, "No Thumbnail", clrFg);
 				}
 				if ((current->loadedmedium != IMG_LOADED) && (current->loaded == IMG_LOADED)) {
 					/* Use small image when medium image is not yet available. */
@@ -357,7 +425,7 @@ void gui_paint_cat_view(gui_t *gui)
 					}
 				}
 				if (current->image == NULL) {
-					current->image = TTF_RenderText_Solid(gui->font, "No Thumbnail", clrFg);
+					current->image = TTF_RenderUTF8_Solid(gui->font, "No Thumbnail", clrFg);
 				}
 				image = current->image;
 			}
@@ -377,7 +445,64 @@ void gui_paint_cat_view(gui_t *gui)
 					overlap_y = 1;
 				}
 				if (!overlap_x || !overlap_y) {
+					/* Show video title for first/selected video. */
+					SDL_Surface *sText = NULL;
+
 					SDL_BlitSurface(image, NULL, gui->screen, &rcDest);
+
+					/* Print video title under the image. */
+					if (cat->title != NULL) {
+						/* Convert text to an image. */
+						sText = TTF_RenderUTF8_Solid(gui->smallfont, current->title, clrFg);
+					}
+					if (sText != NULL) {
+						SDL_Rect headerDest = rcDest;
+						SDL_Rect headerSrc;
+						headerDest.y += image->h + 10;
+						if (current->textScrollPos > (sText->w - image->w)) {
+							/* This can happen, because there are small and medium size thumbnails.
+							 * When the user navigates, the thumbnails can be larger or smaller.
+							 */
+							current->textScrollPos = 0;
+						}
+						if ((cat != gui->current) || (current != cat->current)) {
+							/* When it is not the selected video, don't scroll the text, because this is
+							 * irritating.
+							 */
+							current->textScrollPos = 0;
+						}
+						headerSrc.x = current->textScrollPos;
+						headerSrc.y = 0;
+						if (sText->w > image->w) {
+							/* The title is too long, we need to scroll the text. */
+							headerSrc.w = image->w;
+							current->textScrollCounter++;
+							if (current->textScrollCounter >= SCROLL_COUNT_MAX) {
+								current->textScrollCounter = SCROLL_COUNT_START;
+								if (current->textScrollDir == 0) {
+									if (current->textScrollPos >= (sText->w - image->w)) {
+										current->textScrollDir = 1;
+										current->textScrollCounter = SCROLL_COUNT_END;
+									} else {
+										current->textScrollPos++;
+									}
+								} else {
+									if (current->textScrollPos == 0) {
+										current->textScrollDir = 0;
+										current->textScrollCounter = SCROLL_COUNT_END;
+									} else {
+										current->textScrollPos--;
+									}
+								}
+							}
+						} else {
+							headerSrc.w = image->w;
+						}
+						headerSrc.h = image->h;
+						SDL_BlitSurface(sText, &headerSrc, gui->screen, &headerDest);
+						SDL_FreeSurface(sText);
+						sText = NULL;
+					}
 				}
 
 				rcDest.x += image->w + BORDER_X;
@@ -435,7 +560,7 @@ void gui_paint_status(gui_t *gui)
 		} else {
 			SDL_Surface *sText = NULL;
 
-			sText = TTF_RenderText_Solid(gui->font, t, clrFg);
+			sText = TTF_RenderUTF8_Solid(gui->font, t, clrFg);
 			if (sText != NULL) {
 				if ((rcDest.x + sText->w) >= (gui->screen->w - BORDER_X)) {
 					rcDest.x = BORDER_X;
@@ -501,7 +626,7 @@ SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *format, ...)
 		return NULL;
 	}
 
-	return TTF_RenderText_Solid(gui->font, text, clrFg);
+	return TTF_RenderUTF8_Solid(gui->font, text, clrFg);
 }
 
 void gui_inc_cat(gui_t *gui)
@@ -1000,6 +1125,32 @@ void gui_loop(gui_t *gui)
 									}
 								} else {
 									if (cat->elem != NULL) {
+										gui_inc_elem(gui);
+									}
+								}
+							}
+							break;
+
+						case SDLK_HOME:
+							if (gui->statusmsg == NULL) {
+								gui_cat_t *cat;
+
+								cat = gui->current;
+								if ((cat != NULL) && (cat->elem != NULL)) {
+									while (!((cat->current != NULL) && (cat->current->prev == cat->elem->prev))) {
+										gui_dec_elem(gui);
+									}
+								}
+							}
+							break;
+
+						case SDLK_END:
+							if (gui->statusmsg == NULL) {
+								gui_cat_t *cat;
+
+								cat = gui->current;
+								if ((cat != NULL) && (cat->elem != NULL)) {
+									while (!((cat->current != NULL) && (cat->current->next == cat->elem))) {
 										gui_inc_elem(gui);
 									}
 								}
