@@ -1168,7 +1168,7 @@ int jt_get_my_subscriptions(jt_access_token_t *at, const char *pageToken)
 	LOG("%s()\n", __FUNCTION__);
 
 	rv = jt_load_json_refreshing(at, NULL, "subscriptions.json",
-		"https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&pageToken=%s",
+		"https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=1&pageToken=%s",
 		pageToken);
 
 	return rv;
@@ -1209,7 +1209,7 @@ int jt_get_my_playlist(jt_access_token_t *at, const char *pageToken)
 	LOG("%s()\n", __FUNCTION__);
 
 	rv = jt_load_json_refreshing(at, NULL, "myplaylist.json",
-		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&mine=true&maxResults=50&pageToken=%s",
+		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&mine=true&maxResults=1&pageToken=%s",
 		pageToken);
 
 	return rv;
@@ -1222,7 +1222,7 @@ int jt_get_playlist_items(jt_access_token_t *at, const char *playlistid, const c
 	LOG("%s()\n", __FUNCTION__);
 
 	rv = jt_load_json_refreshing(at, NULL, "playlistitem.json",
-		"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet%%2CcontentDetails&playlistId=%s&maxResults=50&pageToken=%s",
+		"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet%%2CcontentDetails&playlistId=%s&maxResults=20&pageToken=%s",
 		playlistid,
 		pageToken);
 
