@@ -18,3 +18,8 @@ The interface of the libjt is described in libjt/include/libjt.h as
 doxygen comments.
 
 STATUS: The library is still incomplete. There is no streaming support yet.
+
+On Playstation 2 you should set the SDL video driver with:
+export SDL_VIDEODRIVER=ps2gs
+
+The default is fbcon, this also works with PS2, but is slower.
