@@ -23,3 +23,10 @@ On Playstation 2 you should set the SDL video driver with:
 export SDL_VIDEODRIVER=ps2gs
 
 The default is fbcon, this also works with PS2, but is slower.
+
+The library provides only access to the YoutTube Data API and not to the
+YouTube streaming API. The YouTube streaming API needs to much resources (e.g.
+a fully working web browser, Android or IOS installed). For streaming video you
+need to have youtube-dl and mplayer installed.
+
+http://rg3.github.io/youtube-dl/

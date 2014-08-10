@@ -102,6 +102,8 @@ struct gui_elem_s {
 	const char *url;
 	/** URL to medium size thumbnail. */
 	const char *urlmedium;
+	/** YouTube video ID. */
+	const char *videoid;
 	/** Pointer to next video in list. */
 	gui_elem_t *prev;
 	/** Pointer to previous video in list. */
@@ -810,6 +812,7 @@ int update_playlist(gui_t *gui, gui_cat_t *cat)
 					}
 			 		elem->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
 					elem->urlmedium = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/thumbnails/medium/url", i));
+					elem->videoid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/resourceId/videoId", i));
 					elem->subnr = subnr;
 				}
 			}
@@ -1039,6 +1042,32 @@ void gui_dec_elem(gui_t *gui)
 	}
 }
 
+void playVideo(gui_elem_t *elem, int format, int buffersize)
+{
+	char *cmd = NULL;
+	int ret;
+
+	printf("Playing %s (%s)\n", elem->title, elem->videoid);
+
+	if (format == 0) {
+		ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, elem->videoid, elem->videoid, buffersize);
+	} else {
+		ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g -f %d --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, format, elem->videoid, elem->videoid, buffersize);
+	}
+	if (ret != -1) {
+		printf("%s\n", cmd);
+		system(cmd);
+		free(cmd);
+		cmd = NULL;
+		ret = asprintf(&cmd, "/tmp/ytcookie-%s.txt", elem->videoid);
+		if (ret != -1) {
+			unlink(cmd);
+			free(cmd);
+			cmd = NULL;
+		}
+	}
+}
+
 /**
  * Main loop for GUI.
  */
@@ -1086,9 +1115,29 @@ void gui_loop(gui_t *gui)
 				case SDL_KEYDOWN:
 					/* Key pressed on keyboard. */
 					switch(event.key.keysym.sym) {
-						case SDLK_ESCAPE:
 						case SDLK_SPACE:
-						case SDLK_RETURN:
+						case SDLK_RETURN: {
+							gui_cat_t *cat;
+
+							cat = gui->current;
+							if (cat) {
+								gui_elem_t *elem;
+
+								elem = cat->current;
+								if (elem != NULL) {
+									if (elem->videoid != NULL) {
+										if (event.key.keysym.sym == SDLK_RETURN) {
+											playVideo(elem, 5, 1024);
+										} else {
+											playVideo(elem, 0, 4096);
+										}
+									}
+								}
+							}
+							break;
+						}
+
+						case SDLK_ESCAPE:
 						case SDLK_q:
 							/* Quit */
 							done = 1;
