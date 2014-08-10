@@ -21,6 +21,22 @@
 #define IMG_LOAD_RETRY 5
 /** Special value for image loaded successfully. */
 #define IMG_LOADED 10
+
+/* Cache size, defined in the distance of the categories. */
+/** How many categories should preserve the large thumbnails.
+ * Foward and backward from the current selected category.
+ */
+#define PRESERVE_MEDIUM_IMAGES 2
+/** How many categories should preserve the small thumbnails.
+ * Foward and backward from the current selected category.
+ */
+#define PRESERVE_SMALL_IMAGES 4
+/** How many categories should be stored in memory.
+ * Foward and backward from the current selected category.
+ */
+#define PRESERVE_CAT 20
+
+/** Default wait time for a message to display in frames. */
 #define DEFAULT_SLEEP (4 * 50)
 
 #define BORDER_X 40
@@ -61,8 +77,10 @@ enum gui_state {
 	GUI_RESET_STATE,
 	GUI_STATE_INIT,
 	GUI_STATE_GET_FAVORITES,
+	GUI_STATE_GET_PREV_FAVORITES,
 	GUI_STATE_GET_PLAYLIST,
 	GUI_STATE_GET_SUBSCRIPTIONS,
+	GUI_STATE_GET_PREV_SUBSCRIPTIONS,
 	GUI_STATE_GET_CHANNELS,
 	GUI_STATE_RUNNING,
 };
@@ -80,8 +98,10 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_RESET_STATE)
 		CASESTATE(GUI_STATE_INIT)
 		CASESTATE(GUI_STATE_GET_FAVORITES)
+		CASESTATE(GUI_STATE_GET_PREV_FAVORITES)
 		CASESTATE(GUI_STATE_GET_PLAYLIST)
 		CASESTATE(GUI_STATE_GET_SUBSCRIPTIONS)
+		CASESTATE(GUI_STATE_GET_PREV_SUBSCRIPTIONS)
 		CASESTATE(GUI_STATE_GET_CHANNELS)
 		CASESTATE(GUI_STATE_RUNNING)
 	}
@@ -148,12 +168,18 @@ struct gui_cat_s {
 	int favnr;
 	/** Token to get the next favorite via the YouTube API. */
 	char *favoritesNextPageToken;
+	/** Token to get the previous favorite via the YouTube API. */
+	char *favoritesPrevPageToken;
 	/** Number of the subscription. */
 	int subnr;
 	/** Next page to get more subscriptions. */
 	char *subscriptionNextPageToken;
 	/** Previous page to get more subscriptions. */
 	char *subscriptionPrevPageToken;
+	/** State in state machine to get next page. */
+	enum gui_state nextPageState;
+	/** State in state machine to get previous page. */
+	enum gui_state prevPageState;
 };
 
 struct gui_s {
@@ -223,10 +249,9 @@ static SDL_Surface *get_youtube_logo(void)
 	return IMG_Load_RW(rw, 1);
 }
 
-static gui_cat_t *gui_cat_alloc(gui_t *gui)
+static gui_cat_t *gui_cat_alloc(gui_t *gui, gui_cat_t *where)
 {
 	gui_cat_t *rv;
-	gui_cat_t *last;
 
 	rv = malloc(sizeof(*rv));
 	if (rv == NULL) {
@@ -237,20 +262,32 @@ static gui_cat_t *gui_cat_alloc(gui_t *gui)
 	if (gui->current == NULL) {
 		gui->current = rv;
 	}
-	if (gui->categories == NULL) {
-		rv->next = rv;
-		rv->prev = rv;
-		gui->categories = rv;
+	if (where == NULL) {
+		if (gui->categories == NULL) {
+			/* First one inserted in list. */
+			rv->next = rv;
+			rv->prev = rv;
+			gui->categories = rv;
+		} else {
+			gui_cat_t *last;
+
+			/* Insert after last in list. */
+			last = gui->categories->prev;
+	
+			rv->next = last->next;
+			rv->prev = last;
+
+			rv->next->prev = rv;
+			last->next = rv;
+		}
 	} else {
-		last = gui->categories->prev;
+		/* Insert after where. */
+		rv->next = where->next;
+		rv->prev = where;
 
-		rv->next = last->next;
-		rv->prev = last;
-
-		last->next = rv;
-		gui->categories->prev = rv;
+		rv->next->prev = rv;
+		where->next = rv;
 	}
-
 	return rv;
 }
 
@@ -337,11 +374,33 @@ static void gui_elem_free(gui_elem_t *elem)
 	}
 }
 
-static void gui_cat_free(gui_cat_t *cat)
+static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 {
 	if (cat != NULL) {
 		gui_elem_t *elem;
 		gui_elem_t *next;
+
+		if (cat->next == cat) {
+			cat->next = NULL;
+		}
+		if (cat->prev == cat) {
+			cat->prev = NULL;
+		}
+
+		/* Check if cat is at the top of the list. */
+		if (gui->categories == cat) {
+			gui->categories = cat->next;
+		}
+
+		/* Check if cat is at the top of the list. */
+		if (gui->current == cat) {
+			gui->current = cat->next;
+		}
+
+		/* Element can't be further used. */
+		if (gui->cur_cat == cat) {
+			gui->cur_cat = NULL;
+		}
 
 		/* Remove from list. */
 		if (cat->next != NULL) {
@@ -388,6 +447,10 @@ static void gui_cat_free(gui_cat_t *cat)
 		if (cat->favoritesNextPageToken != NULL) {
 			free(cat->favoritesNextPageToken);
 			cat->favoritesNextPageToken = NULL;
+		}
+		if (cat->favoritesPrevPageToken != NULL) {
+			free(cat->favoritesPrevPageToken);
+			cat->favoritesPrevPageToken = NULL;
 		}
 		if (cat->subscriptionNextPageToken != NULL) {
 			free(cat->subscriptionNextPageToken);
@@ -492,7 +555,7 @@ void gui_free(gui_t *gui)
 				/* This is the last one, there is no next. */
 				next = NULL;
 			}
-			gui_cat_free(cat);
+			gui_cat_free(gui, cat);
 			cat = NULL;
 			cat = next;
 		}
@@ -834,7 +897,7 @@ SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *format, ...)
 }
 
 /** Free large thumbnails to get more memory for new thumbnails. */
-void gui_elem_large_free(gui_cat_t *cat)
+void gui_cat_large_free(gui_cat_t *cat)
 {
 	gui_elem_t *elem;
 
@@ -863,7 +926,7 @@ void gui_elem_large_free(gui_cat_t *cat)
 }
 
 /** Free smaller thumbnails to get more memory for new thumbnails. */
-void gui_elem_small_free(gui_cat_t *cat)
+void gui_cat_small_free(gui_cat_t *cat)
 {
 	gui_elem_t *elem;
 
@@ -890,6 +953,62 @@ void gui_elem_small_free(gui_cat_t *cat)
 	}
 }
 
+/** Get the token for the previous page. */
+char *gui_get_prevPageToken(gui_cat_t *cat)
+{
+	if (cat != NULL) {
+		char *prevPageToken;
+
+		switch(cat->prevPageState)
+		{
+			case GUI_STATE_GET_PREV_FAVORITES:
+				prevPageToken = cat->favoritesPrevPageToken;
+				break;
+
+			case GUI_STATE_GET_PREV_SUBSCRIPTIONS:
+				prevPageToken = cat->subscriptionPrevPageToken;
+				break;
+
+			default:
+				LOG_ERROR(__FILE__ ":%d: %s not supported\n", __LINE__,
+					get_state_text(cat->prevPageState));
+				prevPageToken = NULL;
+				break;
+		}
+		return prevPageToken;
+	} else {
+		return NULL;
+	}
+}
+
+/** Get the token for the next page. */
+char *gui_get_nextPageToken(gui_cat_t *cat)
+{
+	if (cat != NULL) {
+		char *nextPageToken;
+
+		switch(cat->nextPageState)
+		{
+			case GUI_STATE_GET_FAVORITES:
+				nextPageToken = cat->favoritesNextPageToken;
+				break;
+
+			case GUI_STATE_GET_SUBSCRIPTIONS:
+				nextPageToken = cat->subscriptionNextPageToken;
+				break;
+
+			default:
+				LOG_ERROR(__FILE__ ":%d: %s not supported\n", __LINE__,
+					get_state_text(cat->nextPageState));
+				nextPageToken = NULL;
+				break;
+		}
+		return nextPageToken;
+	} else {
+		return NULL;
+	}
+}
+
 /** Select next category in list and free "older" stuff. */
 void gui_inc_cat(gui_t *gui)
 {
@@ -905,12 +1024,28 @@ void gui_inc_cat(gui_t *gui)
 		/* Free thumbnail which are currently not shown. */
 		n = 0;
 		while((cat != NULL) && (cat != gui->categories->prev)) {
-			if (n == 2) {
-				/* Free large images. */
-				gui_elem_large_free(cat);
-			} else if (n == 4) {
+			if (n == PRESERVE_MEDIUM_IMAGES) {
+				/* Free medium images. */
+				gui_cat_large_free(cat);
+			} else if (n == PRESERVE_SMALL_IMAGES) {
 				/* Free small images. */
-				gui_elem_small_free(cat);
+				gui_cat_small_free(cat);
+			} else if (n == PRESERVE_CAT) {
+				if ((cat->prevPageState == cat->next->prevPageState)) {
+					char *prevPageToken;
+
+					prevPageToken = gui_get_prevPageToken(cat->next);
+
+					if (prevPageToken != NULL) {
+						/* Temporary remove list from memory.
+						 * List can be loaded later again.
+						 */
+						/* Must be same type to be restorable. */
+						gui_cat_free(gui, cat);
+						cat = NULL;
+						break;
+					}
+				}
 			}
 			cat = cat->prev;
 			n++;
@@ -931,12 +1066,29 @@ void gui_dec_cat(gui_t *gui)
 		/* Free thumbnail which are currently not shown. */
 		n = 0;
 		while((cat != NULL) && (cat != gui->categories)) {
-			if (n == 2) {
-				/* Free large images. */
-				gui_elem_large_free(cat);
-			} else if (n == 4) {
+			if (n == PRESERVE_MEDIUM_IMAGES) {
+				/* Free medium images. */
+				gui_cat_large_free(cat);
+			} else if (n == PRESERVE_SMALL_IMAGES) {
 				/* Free small images. */
-				gui_elem_small_free(cat);
+				gui_cat_small_free(cat);
+			} else if (n == PRESERVE_CAT) {
+				if ((cat->nextPageState == cat->prev->nextPageState)) {
+					char *nextPageToken;
+
+					nextPageToken = gui_get_nextPageToken(cat->prev);
+
+					if (nextPageToken != NULL) {
+						/* Temporary remove list from memory.
+						 * List can be loaded later again.
+						 */
+						/* Must be same type to be restorable. */
+						gui_cat_free(gui, cat);
+						cat = NULL;
+						break;
+					}
+				}
+				break;
 			}
 			cat = cat->next;
 			n++;
@@ -1045,79 +1197,39 @@ int update_playlist(gui_t *gui, gui_cat_t *cat)
 }
 
 
-int update_favorites(gui_t *gui, gui_cat_t *selected_cat)
+int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 {
 	int rv;
-	const char *nextPageToken;
+	const char *pageToken;
 	int favnr;
 
 	if (selected_cat != NULL) {
-		nextPageToken = selected_cat->favoritesNextPageToken;
+		if (reverse) {
+			pageToken = selected_cat->favoritesNextPageToken;
+		} else {
+			pageToken = selected_cat->favoritesPrevPageToken;
+		}
 		favnr = selected_cat->favnr;
 	} else {
-		nextPageToken = "";
+		pageToken = "";
 		favnr = 0;
 	}
 
-	rv = jt_get_my_playlist(gui->at, nextPageToken);
+	rv = jt_get_my_playlist(gui->at, pageToken);
 
-	if (rv == JT_OK) {
-		int totalResults = 0;
-		int resultsPerPage = 0;
-		int i;
-
-		rv = jt_json_get_int_by_path(gui->at, &totalResults, "/pageInfo/totalResults");
-		if (rv != JT_OK) {
-			totalResults = 0;
-		}
-
-		rv = jt_json_get_int_by_path(gui->at, &resultsPerPage, "/pageInfo/resultsPerPage");
-		if (rv != JT_OK) {
-			resultsPerPage = 0;
-		}
-		for (i = 0; (i < resultsPerPage) && (favnr < totalResults); i++) {
-			gui_cat_t *cat;
-
-			cat = gui_cat_alloc(gui);
-			if (cat != NULL) {
-				cat->playlistid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
-				cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/snippet[%d]/channelId", i));
-		 		cat->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
-				cat->favoritesNextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
-				cat->favnr = favnr;
-				if (i == 0) {
-					gui->cur_cat = cat;
-				}
-			}
-			favnr++;
-		}
-		jt_free_transfer(gui->at);
-	}
-	return rv;
-}
-
-int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat)
-{
-	int rv;
-	int subnr;
-	const char *nextPageToken;
-
-	if (selected_cat != NULL) {
-		subnr = selected_cat->subnr;
-		nextPageToken = selected_cat->subscriptionNextPageToken;
-	} else {
-		subnr = 0;
-		nextPageToken = "";
-	}
-
-	rv = jt_get_my_subscriptions(gui->at, nextPageToken);
 	if (rv == JT_OK) {
 		gui_cat_t *last;
 		int totalResults = 0;
 		int resultsPerPage = 0;
 		int i;
 
-		last = selected_cat;
+		if (reverse) {
+			if (selected_cat != NULL) {
+				last = selected_cat->prev;
+			}
+		} else {
+			last = selected_cat;
+		}
 
 		rv = jt_json_get_int_by_path(gui->at, &totalResults, "/pageInfo/totalResults");
 		if (rv != JT_OK) {
@@ -1127,6 +1239,88 @@ int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat)
 		rv = jt_json_get_int_by_path(gui->at, &resultsPerPage, "/pageInfo/resultsPerPage");
 		if (rv != JT_OK) {
 			resultsPerPage = 0;
+		}
+
+		if (reverse) {
+			favnr -= resultsPerPage;
+		}
+		for (i = 0; (i < resultsPerPage) && (favnr < totalResults); i++) {
+			gui_cat_t *cat;
+
+			cat = gui_cat_alloc(gui, last);
+			if (cat != NULL) {
+				last = cat;
+				cat->nextPageState = GUI_STATE_GET_FAVORITES;
+				cat->prevPageState = GUI_STATE_GET_PREV_FAVORITES;
+				cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/snippet[%d]/channelId", i));
+				cat->playlistid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
+		 		cat->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
+				cat->favnr = favnr;
+				if (i == 0) {
+					cat->favoritesPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
+					gui->cur_cat = cat;
+				}
+			}
+			favnr++;
+		}
+		if (last != NULL) {
+			if (last->nextPageState == GUI_STATE_GET_FAVORITES) {
+				if (last->favoritesNextPageToken != NULL) {
+					free(last->favoritesNextPageToken);
+					last->favoritesNextPageToken = NULL;
+				}
+				last->favoritesNextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
+			}
+		}
+		jt_free_transfer(gui->at);
+	}
+	return rv;
+}
+
+int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse)
+{
+	int rv;
+	int subnr;
+	const char *pageToken;
+
+	if (selected_cat != NULL) {
+		subnr = selected_cat->subnr;
+		if (reverse) {
+			pageToken = selected_cat->subscriptionPrevPageToken;
+		} else {
+			pageToken = selected_cat->subscriptionNextPageToken;
+		}
+	} else {
+		subnr = 0;
+		pageToken = "";
+	}
+
+	rv = jt_get_my_subscriptions(gui->at, pageToken);
+	if (rv == JT_OK) {
+		gui_cat_t *last;
+		int totalResults = 0;
+		int resultsPerPage = 0;
+		int i;
+
+		if (reverse) {
+			if (selected_cat != NULL) {
+				last = selected_cat->prev;
+			}
+		} else {
+			last = selected_cat;
+		}
+
+		rv = jt_json_get_int_by_path(gui->at, &totalResults, "/pageInfo/totalResults");
+		if (rv != JT_OK) {
+			totalResults = 0;
+		}
+
+		rv = jt_json_get_int_by_path(gui->at, &resultsPerPage, "/pageInfo/resultsPerPage");
+		if (rv != JT_OK) {
+			resultsPerPage = 0;
+		}
+		if (reverse) {
+			subnr -= resultsPerPage;
 		}
 		for (i = 0; (i < resultsPerPage) && (subnr < totalResults); i++) {
 			const char *channelid;
@@ -1135,9 +1329,11 @@ int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat)
 			if (channelid != NULL) {
 				gui_cat_t *cat;
 
-				cat = gui_cat_alloc(gui);
+				cat = gui_cat_alloc(gui, last);
 				if (cat != NULL) {
 					last = cat;
+					cat->nextPageState = GUI_STATE_GET_SUBSCRIPTIONS;
+					cat->prevPageState = GUI_STATE_GET_PREV_SUBSCRIPTIONS;
 					cat->channelid = strdup(channelid);
 			 		cat->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
 					if (i == 0) {
@@ -1149,12 +1345,14 @@ int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat)
 			subnr++;
 		}
 		if (last != NULL) {
-			if (last->subscriptionNextPageToken != NULL) {
-				free(last->subscriptionNextPageToken);
-				last->subscriptionNextPageToken = NULL;
-			}
+			if (last->nextPageState == GUI_STATE_GET_SUBSCRIPTIONS) {
+				if (last->subscriptionNextPageToken != NULL) {
+					free(last->subscriptionNextPageToken);
+					last->subscriptionNextPageToken = NULL;
+				}
 
-			last->subscriptionNextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
+				last->subscriptionNextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
+			}
 		}
 		jt_free_transfer(gui->at);
 	}
@@ -1206,7 +1404,7 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 
 				if (cat->playlistid != NULL) {
 					/* Need to add new cat for playlist. */
-					cat = gui_cat_alloc(gui);
+					cat = gui_cat_alloc(gui, last);
 				}
 
 				if (cat != NULL) {
@@ -1300,6 +1498,9 @@ void gui_loop(gui_t *gui)
 		curstate = (wakeupcount <= 0) ? state : GUI_STATE_SLEEP;
 
 		if (curstate == GUI_STATE_RUNNING) {
+			/* No operation is pending. */
+			gui->cur_cat = NULL;
+
 			/* Don't display error message. */
 			if (gui->statusmsg != NULL) {
 				free(gui->statusmsg);
@@ -1410,13 +1611,43 @@ void gui_loop(gui_t *gui)
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->categories != NULL) {
 									gui_cat_t *cat;
-									gui_cat_t *last;
 
 									cat = gui->current;
-									last = gui->categories->prev;
-									if ((cat != NULL) && (cat->prev == last)) {
-									} else {
-										gui_dec_cat(gui);
+									if (cat != NULL) {
+										if ((cat == gui->categories) || (cat->prev == NULL) || (cat->prevPageState != cat->prev->prevPageState)) {
+											char *prevPageToken;
+
+											prevPageToken = gui_get_prevPageToken(cat);
+
+											if (prevPageToken != NULL) {
+												/* Load previous page. */
+												state = cat->prevPageState;
+												gui->cur_cat = cat;
+											}
+										}
+										if (state != GUI_STATE_RUNNING) {
+											/* Loading page... */
+										} else if (cat == gui->categories) {
+											/* This is already the first in the list. */
+										} else {
+											gui_dec_cat(gui);
+											cat = NULL;
+										}
+
+										cat = gui->current;
+
+										/* Check if next page can be preloaded: */
+										if ((state == GUI_STATE_RUNNING) && (cat != NULL) && ((cat == gui->categories) || (cat->prev == NULL) || (cat->prevPageState != cat->prev->prevPageState))) {
+											char *prevPageToken;
+
+											prevPageToken = gui_get_prevPageToken(cat);
+
+											if (prevPageToken != NULL) {
+												/* Load previous page. */
+												state = cat->prevPageState;
+												gui->cur_cat = cat;
+											}
+										}
 									}
 								}
 							}
@@ -1428,21 +1659,53 @@ void gui_loop(gui_t *gui)
 									gui_cat_t *cat;
 
 									cat = gui->current;
-									if ((cat != NULL) && (cat->next == gui->categories)) {
-										if (cat->subscriptionNextPageToken != NULL) {
-											/* Get more subscriptions. */
-											state = GUI_STATE_GET_SUBSCRIPTIONS;
-											gui->cur_cat = cat;
-										}
-									} else {
-										if ((cat != NULL) && (cat->next != NULL) && (cat->next->next == gui->categories)) {
-											if (cat->next->subscriptionNextPageToken != NULL) {
-												/* Get more subscriptions. */
-												state = GUI_STATE_GET_SUBSCRIPTIONS;
-												gui->cur_cat = cat->next;
+									if (cat != NULL) {
+										if ((cat->next == NULL) || (cat->next == gui->categories) || (cat->nextPageState != cat->next->nextPageState)) {
+											char *nextPageToken;
+	
+											nextPageToken = gui_get_nextPageToken(cat);
+
+											if (nextPageToken != NULL) {
+												/* Load previous page. */
+												state = cat->nextPageState;
+												gui->cur_cat = cat;
 											}
 										}
-										gui_inc_cat(gui);
+										if (state != GUI_STATE_RUNNING) {
+											/* Loading page... */
+										} else if (cat->next == gui->categories) {
+											/* This is already the last in the list. */
+										} else {
+											gui_inc_cat(gui);
+											cat = NULL;
+										}
+										cat = gui->current;
+										/* Check if next page can be preloaded: */
+										if ((state == GUI_STATE_RUNNING) && (cat != NULL) && ((cat->next == NULL) || (cat->next == gui->categories) || (cat->nextPageState != cat->next->nextPageState))) {
+											char *nextPageToken;
+	
+											nextPageToken = gui_get_nextPageToken(cat);
+
+											if (nextPageToken != NULL) {
+												/* Load previous page. */
+												state = cat->nextPageState;
+												gui->cur_cat = cat;
+											}
+										}
+
+										cat = gui->current;
+										/* Check if previous page can be preloaded: */
+										if ((state == GUI_STATE_RUNNING) && (cat != NULL) && ((cat == gui->categories) || (cat->prev == NULL) || (cat->prevPageState != cat->prev->prevPageState))) {
+											char *prevPageToken;
+
+											prevPageToken = gui_get_prevPageToken(cat);
+
+											if (prevPageToken != NULL) {
+												/* Load previous page. */
+												state = cat->prevPageState;
+												gui->cur_cat = cat;
+											}
+										}
 									}
 								}
 							}
@@ -1454,7 +1717,7 @@ void gui_loop(gui_t *gui)
 									gui_cat_t *cat;
 
 									cat = gui->current;
-									while (!((cat != NULL) && (cat->prev == gui->categories->prev))) {
+									while (!((cat != NULL) && (cat->prev != NULL) && (cat->prev == gui->categories->prev))) {
 										gui_dec_cat(gui);
 										cat = gui->current;
 									}
@@ -1468,13 +1731,13 @@ void gui_loop(gui_t *gui)
 									gui_cat_t *cat;
 
 									cat = gui->current;
-									while (!((cat != NULL) && (cat->next == gui->categories))) {
+									while (!((cat != NULL) && (cat->next != NULL) && (cat->next == gui->categories))) {
 										gui_inc_cat(gui);
 										cat = gui->current;
 									}
-									if (cat->subscriptionNextPageToken != NULL) {
+									if (gui_get_nextPageToken(cat) != NULL) {
 										/* Get more subscriptions. */
-										state = GUI_STATE_GET_SUBSCRIPTIONS;
+										state = cat->nextPageState;
 										gui->cur_cat = cat;
 									}
 								}
@@ -1600,11 +1863,29 @@ void gui_loop(gui_t *gui)
 			}
 
 			case GUI_STATE_GET_FAVORITES:
-				rv = update_favorites(gui, gui->cur_cat);
+				rv = update_favorites(gui, gui->cur_cat, 0);
 				if (rv != JT_OK) {
 					state = GUI_STATE_ERROR;
 					wakeupcount = DEFAULT_SLEEP;
-					nextstate = GUI_STATE_GET_SUBSCRIPTIONS;
+					if ((gui->categories == NULL) || (gui->categories->prev == NULL) || (gui->categories->prev->nextPageState == GUI_STATE_GET_FAVORITES)) {
+						/* First time running, need also to get the subscriptions. */
+						nextstate = GUI_STATE_GET_SUBSCRIPTIONS;
+					} else {
+						nextstate = GUI_STATE_RUNNING;
+					}
+					gui->cur_cat = NULL;
+				} else {
+					state = GUI_STATE_GET_PLAYLIST;
+					afterplayliststate = GUI_STATE_GET_SUBSCRIPTIONS;
+				}
+				break;
+
+			case GUI_STATE_GET_PREV_FAVORITES:
+				rv = update_favorites(gui, gui->cur_cat, 1);
+				if (rv != JT_OK) {
+					state = GUI_STATE_ERROR;
+					wakeupcount = DEFAULT_SLEEP;
+					nextstate = GUI_STATE_RUNNING;
 					gui->cur_cat = NULL;
 				} else {
 					state = GUI_STATE_GET_PLAYLIST;
@@ -1641,10 +1922,24 @@ void gui_loop(gui_t *gui)
 				break;
 
 			case GUI_STATE_GET_SUBSCRIPTIONS: {
-				rv = update_subscriptions(gui, gui->cur_cat);
+				rv = update_subscriptions(gui, gui->cur_cat, 0);
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
+					gui->cur_cat = NULL;
+					state = GUI_STATE_ERROR;
+					wakeupcount = DEFAULT_SLEEP;
+					nextstate = GUI_STATE_RUNNING;
+				}
+				break;
+			}
+
+			case GUI_STATE_GET_PREV_SUBSCRIPTIONS: {
+				rv = update_subscriptions(gui, gui->cur_cat, 1);
+				if (rv == JT_OK) {
+					state = GUI_STATE_GET_CHANNELS;
+				} else {
+					gui->cur_cat = NULL;
 					state = GUI_STATE_ERROR;
 					wakeupcount = DEFAULT_SLEEP;
 					nextstate = GUI_STATE_RUNNING;
@@ -1662,11 +1957,13 @@ void gui_loop(gui_t *gui)
 							afterplayliststate = GUI_STATE_RUNNING;
 						}
 					} else {
+						gui->cur_cat = NULL;
 						state = GUI_STATE_ERROR;
 						wakeupcount = DEFAULT_SLEEP;
 						nextstate = GUI_STATE_RUNNING;
 					}
 				} else {
+					gui->cur_cat = NULL;
 					gui->statusmsg = buf_printf(gui->statusmsg, "No category allocated for channels");
 					wakeupcount = DEFAULT_SLEEP;
 					state = GUI_STATE_RUNNING;
@@ -1674,6 +1971,8 @@ void gui_loop(gui_t *gui)
 				break;
 
 			case GUI_STATE_RUNNING:
+				/* No operation is pending. */
+				gui->cur_cat = NULL;
 				if (gui->statusmsg != NULL) {
 					free(gui->statusmsg);
 					gui->statusmsg = NULL;
