@@ -26,7 +26,7 @@ BFDARCH = $(shell LANG=C $(OBJDUMP) --help | grep -e "supported architectures:" 
 ifeq ($(BUILDROOT_MACHINE),)
 test: all
 	mkdir -p $(TESTDIR)
-	(cd $(TESTDIR) && ../$(PROGRAM))
+	(cd $(TESTDIR) && ../youtubeplayer.sh ../$(PROGRAM))
 endif
 
 all: $(PROGRAM)

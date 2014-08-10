@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <errno.h>
 #include <SDL/SDL_image.h>
 #include <SDL/SDL_ttf.h>
 
@@ -1204,12 +1205,13 @@ int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 	int favnr;
 
 	if (selected_cat != NULL) {
-		if (reverse) {
-			pageToken = selected_cat->favoritesNextPageToken;
-		} else {
-			pageToken = selected_cat->favoritesPrevPageToken;
-		}
 		favnr = selected_cat->favnr;
+		if (reverse) {
+			pageToken = selected_cat->favoritesPrevPageToken;
+		} else {
+			pageToken = selected_cat->favoritesNextPageToken;
+			favnr++;
+		}
 	} else {
 		pageToken = "";
 		favnr = 0;
@@ -1277,7 +1279,7 @@ int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 	return rv;
 }
 
-int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse)
+int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *catpagetoken, int catnr)
 {
 	int rv;
 	int subnr;
@@ -1289,10 +1291,15 @@ int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 			pageToken = selected_cat->subscriptionPrevPageToken;
 		} else {
 			pageToken = selected_cat->subscriptionNextPageToken;
+			subnr++;
 		}
 	} else {
 		subnr = 0;
 		pageToken = "";
+	}
+	if (catpagetoken != NULL) {
+		pageToken = catpagetoken;
+		subnr = catnr;
 	}
 
 	rv = jt_get_my_subscriptions(gui->at, pageToken);
@@ -1335,6 +1342,7 @@ int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 					cat->nextPageState = GUI_STATE_GET_SUBSCRIPTIONS;
 					cat->prevPageState = GUI_STATE_GET_PREV_SUBSCRIPTIONS;
 					cat->channelid = strdup(channelid);
+					cat->subnr = subnr;
 			 		cat->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
 					if (i == 0) {
 						cat->subscriptionPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
@@ -1375,6 +1383,8 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 		nextPageToken = selected_cat->channelNextPageToken;
 		if (nextPageToken == NULL) {
 			nextPageToken = "";
+		} else {
+			channelNr++;
 		}
 	}
 	rv = jt_get_channels(gui->at, selected_cat->channelid, nextPageToken);
@@ -1440,28 +1450,77 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 	return rv;
 }
 
-void playVideo(gui_elem_t *elem, int format, int buffersize)
+int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem_t *elem, int format, int buffersize)
 {
-	char *cmd = NULL;
-	int ret;
+	if (videofile == NULL) {
+		char *cmd = NULL;
+		int ret;
 
-	printf("Playing %s (%s)\n", elem->title, elem->videoid);
+		printf("Playing %s (%s)\n", elem->title, elem->videoid);
 
-	if (format == 0) {
-		ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, elem->videoid, elem->videoid, buffersize);
-	} else {
-		ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g -f %d --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, format, elem->videoid, elem->videoid, buffersize);
-	}
-	if (ret != -1) {
-		printf("%s\n", cmd);
-		system(cmd);
-		free(cmd);
-		cmd = NULL;
-		ret = asprintf(&cmd, "/tmp/ytcookie-%s.txt", elem->videoid);
+		if (format == 0) {
+			ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, elem->videoid, elem->videoid, buffersize);
+		} else {
+			ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g -f %d --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, format, elem->videoid, elem->videoid, buffersize);
+		}
 		if (ret != -1) {
-			unlink(cmd);
+			printf("%s\n", cmd);
+			system(cmd);
 			free(cmd);
 			cmd = NULL;
+			ret = asprintf(&cmd, "/tmp/ytcookie-%s.txt", elem->videoid);
+			if (ret != -1) {
+				unlink(cmd);
+				free(cmd);
+				cmd = NULL;
+			}
+		}
+		return 1;
+	} else {
+		FILE *fout;
+
+		printf("Writing config to %s (%s)\n", videofile, elem->videoid);
+
+		fout = fopen(videofile, "wb");
+		if (fout != NULL) {
+			gui_elem_t *p;
+
+			fprintf(fout, "VIDEOID=\"%s\"\n", elem->videoid);
+			if ((cat->next != NULL) && (cat->next != gui->categories) && (gui_get_prevPageToken(cat->next) != NULL)) {
+				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_prevPageToken(cat->next));
+			} else if ((cat->prev != NULL) && (cat != gui->categories) && (gui_get_nextPageToken(cat->prev) != NULL)) {
+				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_nextPageToken(cat->prev));
+			}
+			p = elem->next;
+			while((p != NULL) && (p != cat->elem)) {
+				if (p->prevPageToken != NULL) {
+					break;
+				}
+				p = p->next;
+			}
+			if ((p != NULL) && (p != cat->elem) && (p->prevPageToken != NULL)) {
+				fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->prevPageToken);
+			} else {
+				p = elem->prev;
+				while((p != NULL) && (p != cat->elem)) {
+					if (p->nextPageToken != NULL) {
+						break;
+					}
+					p = p->prev;
+				}
+				if ((p != NULL) && (p != cat->elem) && (p->nextPageToken != NULL)) {
+					fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->nextPageToken);
+				}
+			}
+			fprintf(fout, "CATNR=\"%d\"\n", cat->subnr);
+			fprintf(fout, "VIDNR=\"%d\"\n", elem->subnr);
+			fprintf(fout, "STATE=\"%d\"\n", cat->nextPageState);
+			fprintf(fout, "VIDEOTITLE='%s'\n", elem->title);
+			fclose(fout);
+			return 0;
+		} else {
+			LOG_ERROR("Failed to write output file %s. %s\n", videofile, strerror(errno));
+			return 1;
 		}
 	}
 }
@@ -1469,7 +1528,7 @@ void playVideo(gui_elem_t *elem, int format, int buffersize)
 /**
  * Main loop for GUI.
  */
-void gui_loop(gui_t *gui)
+void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken)
 {
 	int done;
 	SDL_Event event;
@@ -1527,10 +1586,18 @@ void gui_loop(gui_t *gui)
 								elem = cat->current;
 								if (elem != NULL) {
 									if (elem->videoid != NULL) {
+										int ret = 1;
+
 										if (event.key.keysym.sym == SDLK_RETURN) {
-											playVideo(elem, 5, 1024);
+											ret = playVideo(gui, videofile, cat, elem, 5, 1024);
 										} else {
-											playVideo(elem, 0, 4096);
+											ret = playVideo(gui, videofile, cat, elem, 0, 4096);
+										}
+										if ((videofile != NULL) && (ret == 0)) {
+											/* Terminate program, another program needs to use the videofile
+											 * to play the video.
+											 */
+											done = 1;
 										}
 									}
 								}
@@ -1634,20 +1701,6 @@ void gui_loop(gui_t *gui)
 											cat = NULL;
 										}
 
-										cat = gui->current;
-
-										/* Check if next page can be preloaded: */
-										if ((state == GUI_STATE_RUNNING) && (cat != NULL) && ((cat == gui->categories) || (cat->prev == NULL) || (cat->prevPageState != cat->prev->prevPageState))) {
-											char *prevPageToken;
-
-											prevPageToken = gui_get_prevPageToken(cat);
-
-											if (prevPageToken != NULL) {
-												/* Load previous page. */
-												state = cat->prevPageState;
-												gui->cur_cat = cat;
-											}
-										}
 									}
 								}
 							}
@@ -1898,6 +1951,40 @@ void gui_loop(gui_t *gui)
 					if (gui->cur_cat->playlistid != NULL) {
 						rv = update_playlist(gui, gui->cur_cat);
 						if (rv == JT_OK) {
+							gui_cat_t *cat;
+
+							if (videoid != NULL) {
+								cat = gui->categories;
+								while(cat != NULL) {
+									if ((cat->nextPageState == ((enum gui_state) getstate)) && (cat->subnr == catnr)) {
+										/* Select current category which was specified by the parameter catnr. */
+										gui->current = cat;
+										break;
+									}
+									cat = cat->next;
+									if (cat == gui->categories) {
+										break;
+									}
+								}
+								if ((cat != NULL) && (cat->nextPageState == ((enum gui_state) getstate)) && (cat->subnr == catnr)) {
+									/* Try to find video selected by parameter videoid. */
+									gui_elem_t *elem;
+
+									elem = cat->elem;
+									while(elem != NULL) {
+										if ((elem->videoid != NULL) && (strcmp(elem->videoid, videoid) == 0)) {
+											/* Found video, so select it. */
+											cat->current = elem;
+											break;
+										}
+										elem = elem->next;
+										if (elem == cat->elem) {
+											break;
+										}
+									}
+									videoid = NULL;
+								}
+							}
 							state = afterplayliststate;
 							if (gui->statusmsg != NULL) {
 								free(gui->statusmsg);
@@ -1922,20 +2009,27 @@ void gui_loop(gui_t *gui)
 				break;
 
 			case GUI_STATE_GET_SUBSCRIPTIONS: {
-				rv = update_subscriptions(gui, gui->cur_cat, 0);
+				if (((enum gui_state) getstate) != state) {
+					catpagetoken = NULL;
+				}
+				rv = update_subscriptions(gui, gui->cur_cat, 0, catpagetoken, catnr);
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
-					gui->cur_cat = NULL;
-					state = GUI_STATE_ERROR;
-					wakeupcount = DEFAULT_SLEEP;
-					nextstate = GUI_STATE_RUNNING;
+					/* Retry it without catpagetoken. */
+					if (catpagetoken != NULL) {
+						gui->cur_cat = NULL;
+						state = GUI_STATE_ERROR;
+						wakeupcount = DEFAULT_SLEEP;
+						nextstate = GUI_STATE_RUNNING;
+					}
 				}
+				catpagetoken = NULL;
 				break;
 			}
 
 			case GUI_STATE_GET_PREV_SUBSCRIPTIONS: {
-				rv = update_subscriptions(gui, gui->cur_cat, 1);
+				rv = update_subscriptions(gui, gui->cur_cat, 1, NULL, 0);
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
@@ -1976,6 +2070,37 @@ void gui_loop(gui_t *gui)
 				if (gui->statusmsg != NULL) {
 					free(gui->statusmsg);
 					gui->statusmsg = NULL;
+				}
+				if (gui->current != NULL) {
+					gui_cat_t *cat;
+
+					cat = gui->current;
+
+					/* Check if previous page can be preloaded when nothing is to do. */
+					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && ((cat == gui->categories) || (cat->prev == NULL) || (cat->prevPageState != cat->prev->prevPageState))) {
+						char *prevPageToken;
+
+						prevPageToken = gui_get_prevPageToken(cat);
+
+						if (prevPageToken != NULL) {
+							/* Load previous page. */
+							state = cat->prevPageState;
+							gui->cur_cat = cat;
+						}
+					}
+					cat = gui->current;
+					/* Check if next page can be preloaded when nothing is to do: */
+					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && ((cat->next == NULL) || (cat->next == gui->categories) || (cat->nextPageState != cat->next->nextPageState))) {
+						char *nextPageToken;
+	
+						nextPageToken = gui_get_nextPageToken(cat);
+
+						if (nextPageToken != NULL) {
+							/* Load previous page. */
+							state = cat->nextPageState;
+							gui->cur_cat = cat;
+						}
+					}
 				}
 				break;
 

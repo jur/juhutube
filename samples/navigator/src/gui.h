@@ -7,8 +7,12 @@ typedef struct gui_s gui_t;
 typedef struct gui_elem_s gui_elem_t;
 typedef struct gui_cat_s gui_cat_t;
 
+/**
+ * Allocate GUI.
+ * @param videofile Videofile for storing information about selected video.
+ */
 gui_t *gui_alloc(void);
 void gui_free(gui_t *gui);
-void gui_loop(gui_t *gui);
+void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken);
 
 #endif

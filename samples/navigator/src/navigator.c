@@ -16,11 +16,11 @@
 #include <getopt.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #include "log.h"
 #include "gui.h"
 #include "transfer.h"
-
 
 /**
  * Entry point for the application.
@@ -35,19 +35,50 @@ int main(int argc, char *argv[])
 	int c;
 	const char *logfile = NULL;
 	gui_t *gui;
+	const char *videofile = NULL;
+	const char *catpagetoken = NULL;
+	int catnr = 0;
+	const char *videoid = NULL;
+	const char *videopagetoken = NULL;
+	int state = 0;
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:s")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:c:i:n:m:t:")) != -1) {
 		switch(c) {
 			case 'l':
 				/* Write log messages to a file. */
 				logfile = optarg;
 				break;
 
+			case 'c':
+				/* Write log messages to a file. */
+				catpagetoken = optarg;
+				break;
+
 			case 's':
 				/* Write log messages on console. */
 				logfd = errfd;
+				break;
+
+			case 'v':
+				videofile = optarg;
+				break;
+
+			case 'i':
+				videoid = optarg;
+				break;
+
+			case 'n':
+				catnr = strtol(optarg, NULL, 0);
+				break;
+
+			case 'm':
+				state = strtol(optarg, NULL, 0);
+				break;
+
+			case 't':
+				videopagetoken = optarg;
 				break;
 
 			default:
@@ -76,7 +107,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* Call the GUI main processing loop. */
-	gui_loop(gui);
+	gui_loop(gui, state, videofile, catpagetoken, videoid, catnr, videopagetoken);
 
 	gui_free(gui);
 	gui = NULL;
