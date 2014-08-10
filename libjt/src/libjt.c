@@ -1158,6 +1158,8 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 			at->transfer.jobj = NULL;
 		}
 	}
+	free(url);
+	url = NULL;
 	return rv;
 }
 

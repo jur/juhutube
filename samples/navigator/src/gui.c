@@ -99,11 +99,11 @@ struct gui_elem_s {
 	/** Load counter for medium size thumbnail of image. */
 	int loadedmedium;
 	/** URL to small thumbnail. */
-	const char *url;
+	char *url;
 	/** URL to medium size thumbnail. */
-	const char *urlmedium;
+	char *urlmedium;
 	/** YouTube video ID. */
-	const char *videoid;
+	char *videoid;
 	/** Pointer to next video in list. */
 	gui_elem_t *prev;
 	/** Pointer to previous video in list. */
@@ -223,6 +223,185 @@ static SDL_Surface *get_youtube_logo(void)
 	return IMG_Load_RW(rw, 1);
 }
 
+static gui_cat_t *gui_cat_alloc(gui_t *gui)
+{
+	gui_cat_t *rv;
+	gui_cat_t *last;
+
+	rv = malloc(sizeof(*rv));
+	if (rv == NULL) {
+		return NULL;
+	}
+	memset(rv, 0, sizeof(*rv));
+
+	if (gui->current == NULL) {
+		gui->current = rv;
+	}
+	if (gui->categories == NULL) {
+		rv->next = rv;
+		rv->prev = rv;
+		gui->categories = rv;
+	} else {
+		last = gui->categories->prev;
+
+		rv->next = last->next;
+		rv->prev = last;
+
+		last->next = rv;
+		gui->categories->prev = rv;
+	}
+
+	return rv;
+}
+
+static gui_elem_t *gui_elem_alloc(gui_t *gui, gui_cat_t *cat, const char *url)
+{
+	gui_elem_t *rv;
+	gui_elem_t *last;
+
+	(void) gui;
+
+	rv = malloc(sizeof(*rv));
+	if (rv == NULL) {
+		return NULL;
+	}
+	memset(rv, 0, sizeof(*rv));
+	rv->url = strdup(url);
+
+	if (cat->current == NULL) {
+		cat->current = rv;
+	}
+	if (cat->elem == NULL) {
+		rv->next = rv;
+		rv->prev = rv;
+		cat->elem = rv;
+	} else {
+		last = cat->elem->prev;
+
+		rv->next = last->next;
+		rv->prev = last;
+
+		last->next = rv;
+		cat->elem->prev = rv;
+	}
+
+	return rv;
+}
+
+static void gui_elem_free(gui_elem_t *elem)
+{
+	if (elem != NULL) {
+		/* Remove from list. */
+		if (elem->next != NULL) {
+			elem->next->prev = elem->prev;
+		}
+		if (elem->prev != NULL) {
+			elem->prev->next = elem->next;
+		}
+		elem->prev = NULL;
+		elem->next = NULL;
+		if (elem->image != NULL) {
+			SDL_FreeSurface(elem->image);
+			elem->image = NULL;
+		}
+		if (elem->imagemedium != NULL) {
+			SDL_FreeSurface(elem->imagemedium);
+			elem->imagemedium = NULL;
+		}
+		if (elem->url != NULL) {
+			free(elem->url);
+			elem->url = NULL;
+		}
+		if (elem->urlmedium != NULL) {
+			free(elem->urlmedium);
+			elem->urlmedium = NULL;
+		}
+		if (elem->videoid != NULL) {
+			free(elem->videoid);
+			elem->videoid = NULL;
+		}
+		if (elem->title != NULL) {
+			free(elem->title);
+			elem->title = NULL;
+		}
+		if (elem->nextPageToken != NULL) {
+			free(elem->nextPageToken);
+			elem->nextPageToken = NULL;
+		}
+		if (elem->prevPageToken != NULL) {
+			free(elem->prevPageToken);
+			elem->prevPageToken = NULL;
+		}
+		free(elem);
+		elem = NULL;
+	}
+}
+
+static void gui_cat_free(gui_cat_t *cat)
+{
+	if (cat != NULL) {
+		gui_elem_t *elem;
+		gui_elem_t *next;
+
+		/* Remove from list. */
+		if (cat->next != NULL) {
+			cat->next->prev = cat->prev;
+		}
+		if (cat->prev != NULL) {
+			cat->prev->next = cat->next;
+		}
+		cat->prev = NULL;
+		cat->next = NULL;
+
+		/* Was allocated as part of the list cat->elem. */
+		cat->current = NULL;
+
+		elem = cat->elem;
+		cat->elem = NULL;
+		while(elem != NULL) {
+			next = elem->next;
+			if (elem == elem->prev) {
+				/* This is the last one, there is no next. */
+				next = NULL;
+			}
+			gui_elem_free(elem);
+			elem = NULL;
+			elem = next;
+		}
+
+		if (cat->channelid != NULL) {
+			free(cat->channelid);
+			cat->channelid = NULL;
+		}
+		if (cat->playlistid != NULL) {
+			free(cat->playlistid);
+			cat->playlistid = NULL;
+		}
+		if (cat->title != NULL) {
+			free(cat->title);
+			cat->title = NULL;
+		}
+		if (cat->channelNextPageToken != NULL) {
+			free(cat->channelNextPageToken);
+			cat->channelNextPageToken = NULL;
+		}
+		if (cat->favoritesNextPageToken != NULL) {
+			free(cat->favoritesNextPageToken);
+			cat->favoritesNextPageToken = NULL;
+		}
+		if (cat->subscriptionNextPageToken != NULL) {
+			free(cat->subscriptionNextPageToken);
+			cat->subscriptionNextPageToken = NULL;
+		}
+		if (cat->subscriptionPrevPageToken != NULL) {
+			free(cat->subscriptionPrevPageToken);
+			cat->subscriptionPrevPageToken = NULL;
+		}
+		free(cat);
+		cat = NULL;
+	}
+}
+
 /** Initialize graphic. */
 gui_t *gui_alloc(void)
 {
@@ -298,6 +477,29 @@ gui_t *gui_alloc(void)
 void gui_free(gui_t *gui)
 {
 	if (gui != NULL) {
+		gui_cat_t *cat;
+		gui_cat_t *next;
+
+		/* Was allocated as part of the list gui->categories. */
+		gui->current = NULL;
+		gui->cur_cat = NULL;
+
+		cat = gui->categories;
+		gui->categories = NULL;
+		while(cat != NULL) {
+			next = cat->next;
+			if (cat == cat->prev) {
+				/* This is the last one, there is no next. */
+				next = NULL;
+			}
+			gui_cat_free(cat);
+			cat = NULL;
+			cat = next;
+		}
+		if (gui->categories != NULL) {
+			gui->categories = NULL;
+		}
+
 		if (gui->statusmsg != NULL) {
 			free(gui->statusmsg);
 			gui->statusmsg = NULL;
@@ -867,7 +1069,6 @@ int update_favorites(gui_t *gui, gui_cat_t *selected_cat)
 
 			cat = gui_cat_alloc(gui);
 			if (cat != NULL) {
-				// TBD: free playlistid and other stuff
 				cat->playlistid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
 				cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/snippet[%d]/channelId", i));
 		 		cat->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
@@ -1534,69 +1735,3 @@ void gui_loop(gui_t *gui)
 		gui_paint(gui);
 	}
 }
-
-gui_cat_t *gui_cat_alloc(gui_t *gui)
-{
-	gui_cat_t *rv;
-	gui_cat_t *last;
-
-	rv = malloc(sizeof(*rv));
-	if (rv == NULL) {
-		return NULL;
-	}
-	memset(rv, 0, sizeof(*rv));
-
-	if (gui->current == NULL) {
-		gui->current = rv;
-	}
-	if (gui->categories == NULL) {
-		rv->next = rv;
-		rv->prev = rv;
-		gui->categories = rv;
-	} else {
-		last = gui->categories->prev;
-
-		rv->next = last->next;
-		rv->prev = last;
-
-		last->next = rv;
-		gui->categories->prev = rv;
-	}
-
-	return rv;
-}
-
-gui_elem_t *gui_elem_alloc(gui_t *gui, gui_cat_t *cat, const char *url)
-{
-	gui_elem_t *rv;
-	gui_elem_t *last;
-
-	(void) gui;
-
-	rv = malloc(sizeof(*rv));
-	if (rv == NULL) {
-		return NULL;
-	}
-	memset(rv, 0, sizeof(*rv));
-	rv->url = strdup(url); // TBD: free
-
-	if (cat->current == NULL) {
-		cat->current = rv;
-	}
-	if (cat->elem == NULL) {
-		rv->next = rv;
-		rv->prev = rv;
-		cat->elem = rv;
-	} else {
-		last = cat->elem->prev;
-
-		rv->next = last->next;
-		rv->prev = last;
-
-		last->next = rv;
-		cat->elem->prev = rv;
-	}
-
-	return rv;
-}
-
