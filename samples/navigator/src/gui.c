@@ -833,6 +833,64 @@ SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *format, ...)
 	return TTF_RenderUTF8_Solid(gui->font, text, clrFg);
 }
 
+/** Free large thumbnails to get more memory for new thumbnails. */
+void gui_elem_large_free(gui_cat_t *cat)
+{
+	gui_elem_t *elem;
+
+	elem = cat->elem;
+	while(elem != NULL) {
+		elem = elem->next;
+
+		if (elem->loadedmedium == IMG_LOADED) {
+			/* The image was successfully loaded, loading it again
+			 * should work again.
+			 */
+			elem->loadedmedium = 0;
+		}
+		if (elem->imagemedium != NULL) {
+			/* Free some memory, image can be reloaded later when
+			 * needed.
+			 */
+			SDL_FreeSurface(elem->imagemedium);
+			elem->imagemedium = NULL;
+		}
+		if (elem == cat->elem) {
+			/* Last element in list. */
+			break;
+		}
+	}
+}
+
+/** Free smaller thumbnails to get more memory for new thumbnails. */
+void gui_elem_small_free(gui_cat_t *cat)
+{
+	gui_elem_t *elem;
+
+	elem = cat->elem;
+	while(elem != NULL) {
+		elem = elem->next;
+		if (elem->loaded == IMG_LOADED) {
+			/* The image was successfully loaded, loading it again
+			 * should work again.
+			 */
+			elem->loaded = 0;
+		}
+		if (elem->image != NULL) {
+			/* Free some memory, image can be reloaded later when
+			 * needed.
+			 */
+			SDL_FreeSurface(elem->image);
+			elem->image = NULL;
+		}
+		if (elem == cat->elem) {
+			/* Last element in list. */
+			break;
+		}
+	}
+}
+
+/** Select next category in list and free "older" stuff. */
 void gui_inc_cat(gui_t *gui)
 {
 	gui_cat_t *cat;
@@ -840,114 +898,53 @@ void gui_inc_cat(gui_t *gui)
 	cat = gui->current;
 
 	if (cat != NULL) {
+		int n;
+
 		gui->current = cat->next;
 
 		/* Free thumbnail which are currently not shown. */
-		cat = gui->current;
-		if (cat != NULL) {
-			cat = cat->prev;
-			if ((cat != NULL) && (cat != gui->categories->prev)) {
-				cat = cat->prev;
-				if ((cat != NULL) && (cat != gui->categories->prev)) {
-					gui_elem_t *elem;
-
-					elem = cat->elem;
-					while(elem != NULL) {
-						elem = elem->next;
-						if (elem->loadedmedium == IMG_LOADED) {
-							elem->loadedmedium = 0;
-						}
-						if (elem->imagemedium != NULL) {
-							SDL_FreeSurface(elem->imagemedium);
-							elem->imagemedium = NULL;
-						}
-						if (elem == cat->elem) {
-							break;
-						}
-					}
-					cat = cat->prev;
-					if ((cat != NULL) && (cat != gui->categories->prev)) {
-						cat = cat->prev;
-						if ((cat != NULL) && (cat != gui->categories->prev)) {
-
-							elem = cat->elem;
-							while(elem != NULL) {
-								elem = elem->next;
-								if (elem->loaded == IMG_LOADED) {
-									elem->loaded = 0;
-								}
-								if (elem->image != NULL) {
-									SDL_FreeSurface(elem->image);
-									elem->image = NULL;
-								}
-								if (elem == cat->elem) {
-									break;
-								}
-							}
-						}
-					}
-				}
+		n = 0;
+		while((cat != NULL) && (cat != gui->categories->prev)) {
+			if (n == 2) {
+				/* Free large images. */
+				gui_elem_large_free(cat);
+			} else if (n == 4) {
+				/* Free small images. */
+				gui_elem_small_free(cat);
 			}
+			cat = cat->prev;
+			n++;
 		}
 	}
 }
 
+/** Select previous category in list and free "older" stuff. */
 void gui_dec_cat(gui_t *gui)
 {
 	gui_cat_t *cat;
 
 	cat = gui->current;
 	if (cat != NULL) {
+		int n;
 		gui->current = cat->prev;
 
 		/* Free thumbnail which are currently not shown. */
-		cat = gui->current;
-		if (cat != NULL) {
-			cat = cat->next;
-			if ((cat != NULL) && (cat != gui->categories)) {
-				cat = cat->next;
-				if ((cat != NULL) && (cat != gui->categories)) {
-					gui_elem_t *elem;
-
-					elem = cat->elem;
-					while(elem != NULL) {
-						elem = elem->next;
-						if (elem->loadedmedium == IMG_LOADED) {
-							elem->loadedmedium = 0;
-						}
-						if (elem->imagemedium != NULL) {
-							SDL_FreeSurface(elem->imagemedium);
-							elem->imagemedium = NULL;
-						}
-						if (elem == cat->elem) {
-							break;
-						}
-					}
-					cat = cat->next;
-					if ((cat != NULL) && (cat != gui->categories)) {
-						if ((cat != NULL) && (cat != gui->categories)) {
-							elem = cat->elem;
-							while(elem != NULL) {
-								elem = elem->next;
-								if (elem->loaded == IMG_LOADED) {
-									elem->loaded = 0;
-								}
-								if (elem->image != NULL) {
-									SDL_FreeSurface(elem->image);
-									elem->image = NULL;
-								}
-								if (elem == cat->elem) {
-									break;
-								}
-							}
-						}
-					}
-				}
+		n = 0;
+		while((cat != NULL) && (cat != gui->categories)) {
+			if (n == 2) {
+				/* Free large images. */
+				gui_elem_large_free(cat);
+			} else if (n == 4) {
+				/* Free small images. */
+				gui_elem_small_free(cat);
 			}
+			cat = cat->next;
+			n++;
 		}
 	}
 }
 
+/** Select next element in list. */
 void gui_inc_elem(gui_t *gui)
 {
 	gui_cat_t *cat;
@@ -959,6 +956,20 @@ void gui_inc_elem(gui_t *gui)
 		}
 	}
 }
+
+/** Select previous element in list. */
+void gui_dec_elem(gui_t *gui)
+{
+	gui_cat_t *cat;
+
+	cat = gui->current;
+	if (cat != NULL) {
+		if (cat->current != NULL) {
+			cat->current = cat->current->prev;
+		}
+	}
+}
+
 
 int update_playlist(gui_t *gui, gui_cat_t *cat)
 {
@@ -1229,18 +1240,6 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 		*l = last;
 	}
 	return rv;
-}
-
-void gui_dec_elem(gui_t *gui)
-{
-	gui_cat_t *cat;
-
-	cat = gui->current;
-	if (cat != NULL) {
-		if (cat->current != NULL) {
-			cat->current = cat->current->prev;
-		}
-	}
 }
 
 void playVideo(gui_elem_t *elem, int format, int buffersize)

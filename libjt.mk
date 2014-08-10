@@ -22,7 +22,8 @@ BUILDROOT_MACHINE = $(shell echo "$(MACHINE)" | grep -e buildroot)
 LIBJTDIR = $(LIBJTBASEDIR)/libjt/lib-$(MACHINE)
 LIBJT = $(LIBJTDIR)/libjt.a
 
-CPPFLAGS += -W -Wall -Werror-implicit-function-declaration -std=gnu99 -Iinclude
+CPPFLAGS += -W -Wall -Werror-implicit-function-declaration -Wuninitialized
+CPPFLAGS += -std=gnu99 -Iinclude
 CPPFLAGS += -I$(LIBJTBASEDIR)/libjt/include
 LDFLAGS += -L$(LIBJTDIR)
 LDLIBS += $(LIBJT)
