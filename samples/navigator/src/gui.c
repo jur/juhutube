@@ -82,7 +82,10 @@ enum gui_state {
 	GUI_STATE_GET_PLAYLIST,
 	GUI_STATE_GET_SUBSCRIPTIONS,
 	GUI_STATE_GET_PREV_SUBSCRIPTIONS,
+	GUI_STATE_GET_MY_CHANNELS,
+	GUI_STATE_GET_MY_PREV_CHANNELS,
 	GUI_STATE_GET_CHANNELS,
+	GUI_STATE_GET_PREV_CHANNELS,
 	GUI_STATE_RUNNING,
 };
 
@@ -104,6 +107,9 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_GET_SUBSCRIPTIONS)
 		CASESTATE(GUI_STATE_GET_PREV_SUBSCRIPTIONS)
 		CASESTATE(GUI_STATE_GET_CHANNELS)
+		CASESTATE(GUI_STATE_GET_PREV_CHANNELS)
+		CASESTATE(GUI_STATE_GET_MY_CHANNELS)
+		CASESTATE(GUI_STATE_GET_MY_PREV_CHANNELS)
 		CASESTATE(GUI_STATE_RUNNING)
 	}
 	return "unknown";
@@ -165,6 +171,8 @@ struct gui_cat_s {
 	int channelNr;
 	/** Token to get the next channel via the YouTube API. */
 	char *channelNextPageToken;
+	/** Token to get the previous channel via the YouTube API. */
+	char *channelPrevPageToken;
 	/** Number of the favorite. */
 	int favnr;
 	/** Token to get the next favorite via the YouTube API. */
@@ -445,6 +453,10 @@ static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 			free(cat->channelNextPageToken);
 			cat->channelNextPageToken = NULL;
 		}
+		if (cat->channelPrevPageToken != NULL) {
+			free(cat->channelPrevPageToken);
+			cat->channelPrevPageToken = NULL;
+		}
 		if (cat->favoritesNextPageToken != NULL) {
 			free(cat->favoritesNextPageToken);
 			cat->favoritesNextPageToken = NULL;
@@ -599,7 +611,7 @@ void gui_free(gui_t *gui)
 	}
 }
 
-SDL_Surface *gui_load_image(transfer_t *transfer, const char *url)
+static SDL_Surface *gui_load_image(transfer_t *transfer, const char *url)
 {
 	SDL_Surface *image = NULL;
 	void *mem = NULL;
@@ -617,7 +629,7 @@ SDL_Surface *gui_load_image(transfer_t *transfer, const char *url)
 }
 
 
-void gui_paint_cat_view(gui_t *gui)
+static void gui_paint_cat_view(gui_t *gui)
 {
 	SDL_Rect rcDest = { BORDER_X /* X pos */, 90 /* Y pos */, 0, 0 };
 	gui_cat_t *cat;
@@ -807,7 +819,7 @@ void gui_paint_cat_view(gui_t *gui)
 	}
 }
 
-void gui_paint_status(gui_t *gui)
+static void gui_paint_status(gui_t *gui)
 {
 	SDL_Color clrFg = {255, 255, 255, 0}; /* White */
 	const char *text;
@@ -850,7 +862,7 @@ void gui_paint_status(gui_t *gui)
 /**
  * Paint GUI.
  */
-void gui_paint(gui_t *gui)
+static void gui_paint(gui_t *gui)
 {
 	SDL_FillRect(gui->screen, NULL, 0x000000);
 
@@ -874,7 +886,7 @@ void gui_paint(gui_t *gui)
  *
  * @returns SDL surface which should replace the image.
  */
-SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *format, ...)
+static SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *format, ...)
 {
 	va_list ap;
 	SDL_Color clrFg = {255, 255, 255, 0}; /* White */
@@ -898,7 +910,7 @@ SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *format, ...)
 }
 
 /** Free large thumbnails to get more memory for new thumbnails. */
-void gui_cat_large_free(gui_cat_t *cat)
+static void gui_cat_large_free(gui_cat_t *cat)
 {
 	gui_elem_t *elem;
 
@@ -927,7 +939,7 @@ void gui_cat_large_free(gui_cat_t *cat)
 }
 
 /** Free smaller thumbnails to get more memory for new thumbnails. */
-void gui_cat_small_free(gui_cat_t *cat)
+static void gui_cat_small_free(gui_cat_t *cat)
 {
 	gui_elem_t *elem;
 
@@ -955,7 +967,7 @@ void gui_cat_small_free(gui_cat_t *cat)
 }
 
 /** Get the token for the previous page. */
-char *gui_get_prevPageToken(gui_cat_t *cat)
+static char *gui_get_prevPageToken(gui_cat_t *cat)
 {
 	if (cat != NULL) {
 		char *prevPageToken;
@@ -970,9 +982,18 @@ char *gui_get_prevPageToken(gui_cat_t *cat)
 				prevPageToken = cat->subscriptionPrevPageToken;
 				break;
 
+			case GUI_STATE_GET_MY_PREV_CHANNELS:
+#if 0
+				prevPageToken = cat->channelPrevPageToken;
+#else
+				/* TBD: No support in navigator for unloading this side. */
+				prevPageToken = NULL;
+#endif
+				break;
+
 			default:
-				LOG_ERROR(__FILE__ ":%d: %s not supported\n", __LINE__,
-					get_state_text(cat->prevPageState));
+				LOG_ERROR(__FILE__ ":%d: %s not supported in category %s.\n", __LINE__,
+					get_state_text(cat->prevPageState), cat->title);
 				prevPageToken = NULL;
 				break;
 		}
@@ -983,7 +1004,7 @@ char *gui_get_prevPageToken(gui_cat_t *cat)
 }
 
 /** Get the token for the next page. */
-char *gui_get_nextPageToken(gui_cat_t *cat)
+static char *gui_get_nextPageToken(gui_cat_t *cat)
 {
 	if (cat != NULL) {
 		char *nextPageToken;
@@ -998,9 +1019,18 @@ char *gui_get_nextPageToken(gui_cat_t *cat)
 				nextPageToken = cat->subscriptionNextPageToken;
 				break;
 
+			case GUI_STATE_GET_MY_CHANNELS:
+#if 0
+				nextPageToken = cat->channelNextPageToken;
+#else
+				/* TBD: No support in navigator for unloading this side. */
+				nextPageToken = NULL;
+#endif
+				break;
+
 			default:
-				LOG_ERROR(__FILE__ ":%d: %s not supported\n", __LINE__,
-					get_state_text(cat->nextPageState));
+				LOG_ERROR(__FILE__ ":%d: %s not supported in category %s.\n", __LINE__,
+					get_state_text(cat->nextPageState), cat->title);
 				nextPageToken = NULL;
 				break;
 		}
@@ -1011,7 +1041,7 @@ char *gui_get_nextPageToken(gui_cat_t *cat)
 }
 
 /** Select next category in list and free "older" stuff. */
-void gui_inc_cat(gui_t *gui)
+static void gui_inc_cat(gui_t *gui)
 {
 	gui_cat_t *cat;
 
@@ -1055,7 +1085,7 @@ void gui_inc_cat(gui_t *gui)
 }
 
 /** Select previous category in list and free "older" stuff. */
-void gui_dec_cat(gui_t *gui)
+static void gui_dec_cat(gui_t *gui)
 {
 	gui_cat_t *cat;
 
@@ -1098,7 +1128,7 @@ void gui_dec_cat(gui_t *gui)
 }
 
 /** Select next element in list. */
-void gui_inc_elem(gui_t *gui)
+static void gui_inc_elem(gui_t *gui)
 {
 	gui_cat_t *cat;
 
@@ -1111,7 +1141,7 @@ void gui_inc_elem(gui_t *gui)
 }
 
 /** Select previous element in list. */
-void gui_dec_elem(gui_t *gui)
+static void gui_dec_elem(gui_t *gui)
 {
 	gui_cat_t *cat;
 
@@ -1124,7 +1154,7 @@ void gui_dec_elem(gui_t *gui)
 }
 
 
-int update_playlist(gui_t *gui, gui_cat_t *cat)
+static int update_playlist(gui_t *gui, gui_cat_t *cat)
 {
 	int rv;
 	int subnr;
@@ -1137,6 +1167,10 @@ int update_playlist(gui_t *gui, gui_cat_t *cat)
 		/* Get the number of the last element in the list. */
 		subnr = last->subnr;
 		nextPageToken = last->nextPageToken;
+		if (nextPageToken == NULL) {
+			LOG_ERROR("%s: Bad pageToken in cat %s.\n", __FUNCTION__, cat->title);
+			return JT_ERROR;
+		}
 		subnr++;
 	} else {
 		last = NULL;
@@ -1146,7 +1180,7 @@ int update_playlist(gui_t *gui, gui_cat_t *cat)
 		nextPageToken = "";
 	}
 
-	rv = jt_get_playlist_items(gui->at, gui->cur_cat->playlistid, nextPageToken);
+	rv = jt_get_playlist_items(gui->at, cat->playlistid, nextPageToken);
 	nextPageToken = NULL;
 
 	if (rv == JT_OK) {
@@ -1198,7 +1232,7 @@ int update_playlist(gui_t *gui, gui_cat_t *cat)
 }
 
 
-int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
+static int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 {
 	int rv;
 	const char *pageToken;
@@ -1211,6 +1245,10 @@ int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 		} else {
 			pageToken = selected_cat->favoritesNextPageToken;
 			favnr++;
+		}
+		if (pageToken == NULL) {
+			LOG_ERROR("%s: Bad pageToken in cat %s.\n", __FUNCTION__, selected_cat->title);
+			return JT_ERROR;
 		}
 	} else {
 		pageToken = "";
@@ -1279,7 +1317,7 @@ int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 	return rv;
 }
 
-int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *catpagetoken, int catnr)
+static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *catpagetoken, int catnr)
 {
 	int rv;
 	int subnr;
@@ -1292,6 +1330,10 @@ int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const
 		} else {
 			pageToken = selected_cat->subscriptionNextPageToken;
 			subnr++;
+		}
+		if (pageToken == NULL) {
+			LOG_ERROR("%s: Bad pageToken in cat %s.\n", __FUNCTION__, selected_cat->title);
+			return JT_ERROR;
 		}
 	} else {
 		subnr = 0;
@@ -1367,7 +1409,7 @@ int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const
 	return rv;
 }
 
-int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
+static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 {
 	int rv;
 	int channelNr;
@@ -1412,7 +1454,7 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 			if (playlistid != NULL) {
 				gui_cat_t *cat = selected_cat;
 
-				if (cat->playlistid != NULL) {
+				if ((cat == NULL) || (cat->playlistid != NULL)) {
 					/* Need to add new cat for playlist. */
 					cat = gui_cat_alloc(gui, last);
 				}
@@ -1422,8 +1464,15 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 
 					last = cat;
 
+					if (selected_cat != NULL) {
+						cat->nextPageState = selected_cat->nextPageState;
+						cat->prevPageState = selected_cat->prevPageState;
+					} else {
+						cat->nextPageState = GUI_STATE_GET_CHANNELS;
+						cat->prevPageState = GUI_STATE_GET_PREV_CHANNELS;
+					}
 					cat->channelNr = channelNr;
-					cat->channelid = selected_cat->channelid;
+					cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
 					cat->playlistid = strdup(playlistid);
 			 		title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
 					if (title != NULL) {
@@ -1433,9 +1482,13 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 						}
 						cat->title = title;
 					}
+					if (i == 0) {
+						cat->channelPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
+						gui->cur_cat = cat;
+					}
 				}
 			}
-			selected_cat->channelNr++;
+			channelNr++;
 		}
 		if (last != NULL) {
 			if (last->channelNextPageToken != NULL) {
@@ -1450,7 +1503,100 @@ int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 	return rv;
 }
 
-int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem_t *elem, int format, int buffersize)
+static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat)
+{
+	int rv;
+	int channelNr;
+	const char *nextPageToken;
+
+	if (selected_cat == NULL) {
+		/* Get first page. */
+		channelNr = 0;
+		nextPageToken = "";
+	} else {
+		/* Get next page. */
+		channelNr = selected_cat->channelNr;
+		nextPageToken = selected_cat->channelNextPageToken;
+		if (nextPageToken == NULL) {
+			nextPageToken = "";
+		} else {
+			channelNr++;
+		}
+		if (nextPageToken == NULL) {
+			LOG_ERROR("%s: Bad pageToken in cat %s.\n", __FUNCTION__, selected_cat->title);
+			return JT_ERROR;
+		}
+	}
+	rv = jt_get_my_channels(gui->at, nextPageToken);
+	if (rv == JT_OK) {
+		int totalResults = 0;
+		int resultsPerPage = 0;
+		int i;
+		gui_cat_t *last;
+
+		last = selected_cat;
+
+		rv = jt_json_get_int_by_path(gui->at, &totalResults, "/pageInfo/totalResults");
+		if (rv != JT_OK) {
+			totalResults = 0;
+		}
+
+		rv = jt_json_get_int_by_path(gui->at, &resultsPerPage, "/pageInfo/resultsPerPage");
+		if (rv != JT_OK) {
+			resultsPerPage = 0;
+		}
+		for (i = 0; (i < resultsPerPage) && (channelNr < totalResults); i++) {
+			const char *playlistid;
+			
+			playlistid = jt_json_get_string_by_path(gui->at, "/items[%d]/contentDetails/relatedPlaylists/uploads", i);
+			if (playlistid != NULL) {
+				gui_cat_t *cat = selected_cat;
+
+				if ((cat == NULL) || (cat->playlistid != NULL)) {
+					/* Need to add new cat for playlist. */
+					cat = gui_cat_alloc(gui, last);
+				}
+
+				if (cat != NULL) {
+					char *title;
+
+					last = cat;
+
+					cat->nextPageState = GUI_STATE_GET_MY_CHANNELS;
+					cat->prevPageState = GUI_STATE_GET_MY_PREV_CHANNELS;
+					cat->channelNr = channelNr;
+					cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
+					cat->playlistid = strdup(playlistid);
+			 		title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
+					if (title != NULL) {
+						if (cat->title != NULL) {
+							free(cat->title);
+							cat->title = NULL;
+						}
+						cat->title = title;
+					}
+					if (i == 0) {
+						cat->channelPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
+						gui->cur_cat = cat;
+					}
+				}
+			}
+			channelNr++;
+		}
+		if (last != NULL) {
+			if (last->channelNextPageToken != NULL) {
+				free(last->channelNextPageToken);
+				last->channelNextPageToken = NULL;
+			}
+			last->channelNextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
+		}
+		jt_free_transfer(gui->at);
+	}
+
+	return rv;
+}
+
+static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem_t *elem, int format, int buffersize)
 {
 	if (videofile == NULL) {
 		char *cmd = NULL;
@@ -1920,12 +2066,23 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 				if (rv != JT_OK) {
 					state = GUI_STATE_ERROR;
 					wakeupcount = DEFAULT_SLEEP;
+					gui->cur_cat = NULL;
+				} else {
 					if ((gui->categories == NULL) || (gui->categories->prev == NULL) || (gui->categories->prev->nextPageState == GUI_STATE_GET_FAVORITES)) {
 						/* First time running, need also to get the subscriptions. */
-						nextstate = GUI_STATE_GET_SUBSCRIPTIONS;
+						state = GUI_STATE_GET_PLAYLIST;
+						afterplayliststate = GUI_STATE_GET_MY_CHANNELS;
 					} else {
-						nextstate = GUI_STATE_RUNNING;
+						state = GUI_STATE_RUNNING;
 					}
+				}
+				break;
+
+			case GUI_STATE_GET_MY_CHANNELS:
+				rv = update_my_channels(gui, gui->cur_cat);
+				if (rv != JT_OK) {
+					state = GUI_STATE_ERROR;
+					wakeupcount = DEFAULT_SLEEP;
 					gui->cur_cat = NULL;
 				} else {
 					state = GUI_STATE_GET_PLAYLIST;

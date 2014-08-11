@@ -197,6 +197,20 @@ int jt_get_my_subscriptions(jt_access_token_t *at, const char *pageToken);
 int jt_get_channels(jt_access_token_t *at, const char *channelId, const char *pageToken);
 
 /**
+ * Get the channels for the current user.
+ * The function will automatically refresh access tokens when needed.
+ *
+ * @return JT_OK On success.
+ * @return JT_TRANSFER_ERROR When an HTTPS transfer error happened. Wrong
+ *         certificate, no DNS and other errors.
+ * @return JT_AUTH_ERROR When permission denied.
+ * @return JT_ERROR_ACCESS_TOKEN When jt_get_token() or jt_load_token() wasn't
+ *         called.
+ * @return JT_PROTOCOL_ERROR Protocol error.
+ */
+int jt_get_my_channels(jt_access_token_t *at, const char *pageToken);
+
+/**
  * Get the playlist for the playlistid.
  * The function will automatically refresh access tokens when needed.
  *

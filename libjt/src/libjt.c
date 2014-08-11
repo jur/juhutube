@@ -1125,6 +1125,7 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 			error = jt_json_get_string_by_path(at, "/error/errors[0]/reason");
 
 			if (error != NULL) {
+				LOG_ERROR("%s() URL: %s\n", __FUNCTION__, url);
 				LOG_ERROR("%s\n", error);
 				if (strcmp(error, "authError") == 0) {
 					error = NULL;
@@ -1185,6 +1186,19 @@ int jt_get_channels(jt_access_token_t *at, const char *channelId, const char *pa
 	rv = jt_load_json_refreshing(at, NULL, "channels.json",
 		"https://www.googleapis.com/youtube/v3/channels?part=snippet%%2CcontentDetails&id=%s&pageToken=%s",
 		channelId,
+		pageToken);
+
+	return rv;
+}
+
+int jt_get_my_channels(jt_access_token_t *at, const char *pageToken)
+{
+	int rv;
+
+	LOG("%s()\n", __FUNCTION__);
+
+	rv = jt_load_json_refreshing(at, NULL, "mychannels.json",
+		"https://www.googleapis.com/youtube/v3/channels?part=snippet%%2CcontentDetails&mine=true&pageToken=%s",
 		pageToken);
 
 	return rv;
