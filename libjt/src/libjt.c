@@ -17,11 +17,6 @@
 #include <getopt.h>
 #include <errno.h>
 #include <curl/curl.h>
-#ifdef BUILD_WITH_BUILDROOT
-#include <json-c/json.h>
-#else
-#include <json/json.h>
-#endif
 
 #include "libjt.h"
 
@@ -348,6 +343,175 @@ static const char *jt_json_get_string(jt_access_token_t *at, const char *jsonkey
 	rv = jt_json_sub_get_string(at->transfer.jobj, jsonkey);
 
 	LOG("%s() jsonkey %s = %s\n", __FUNCTION__, jsonkey, rv);
+
+	return rv;
+}
+
+static json_object *jt_json_sub_get_object_by_path(jt_access_token_t *at, json_object *jobj, char *path, ...) {
+	char *jsonkey;
+	char *end;
+	char *term = NULL;
+	long array = -1;
+
+	LOG("%s(): path %s\n", __FUNCTION__, path);
+
+	/* Removing leading slashes from path. */
+	while(path[0] == '/') {
+		path++;
+	}
+	jsonkey = path;
+	LOG("%s(): jsonkey %s\n", __FUNCTION__, jsonkey);
+
+	/* Find end of current component (ends with slash or string termination). */
+	end = path;
+	while((*end != 0) && (*end != '/')) {
+		if (*end == '[') {
+			LOG("%s(): detected array in path %s\n", __FUNCTION__, end);
+			array = strtol(end + 1, NULL, 0);
+			term = end;
+			if (array < 0) {
+				LOG_ERROR("%s(): path %s has a bad array index.\n", __FUNCTION__, path);
+				return NULL;
+			}
+		}
+		end++;
+	}
+
+	/* Set path to next component or 0 if this is already the last component. */
+	path = end;
+	if (*end != 0) {
+		path++;
+	}
+	/* Terminate jsonkey string. */
+	*end = 0;
+	/* Get jsonkey from array, remove '[' from string. */
+	LOG("%s(): term %p\n", __FUNCTION__, term);
+	if (term != NULL) {
+		*term = 0;
+	}
+	LOG("%s(): jsonkey '%s' *path 0x%02x\n", __FUNCTION__, jsonkey, *path);
+
+	json_object_object_foreach(jobj, key, val) {
+		enum json_type type;
+#if 0
+		const char *typedscription = NULL;
+#endif
+
+		type = json_object_get_type(val);
+#if 0
+		switch (type) {
+			case json_type_string:
+				typedscription = "String";
+				break;
+			case json_type_object:
+				typedscription = "Object";
+				break;
+			case json_type_array:
+				typedscription = "Array";
+				break;
+			case json_type_null:
+				typedscription = "Null";
+				break;
+			case json_type_boolean:
+				typedscription = "Boolean";
+				break;
+			case json_type_double:
+				typedscription = "Double";
+				break;
+			case json_type_int:
+				typedscription = "Int";
+				break;
+		}
+		printf("type: %d %s key %s\n", type, typedscription, key);
+#endif
+
+		if (strcmp(key, jsonkey) == 0) {
+			switch (type) {
+				case json_type_object:
+					if (*path != 0) {
+						json_object *sub;
+	
+						LOG("%s(): found object\n", __FUNCTION__);
+						sub = json_object_object_get(jobj, key);
+	
+						return jt_json_sub_get_object_by_path(at, sub, path);
+					} else {
+						LOG("%s(): found object\n", __FUNCTION__);
+						return json_object_object_get(jobj, key);
+					}
+					break;
+
+				case json_type_array:
+					if (array >= 0) {
+						json_object *sub;
+	
+						sub = json_object_object_get(jobj, key);
+	
+						/* Only check first element in array. */
+						sub = json_object_array_get_idx(sub, array);
+						if ((sub == NULL) || is_error(sub)) {
+							LOG_ERROR("%s(): Array index %ld out of range.\n", __FUNCTION__, array);
+							return NULL;
+						}
+						if (*path == 0) {
+							if (json_object_get_type(sub) == json_type_object) {
+								LOG("%s(): found object in array\n", __FUNCTION__);
+								return sub;
+							} else {
+								LOG("%s(): reject array, path too short\n", __FUNCTION__);
+								return NULL;
+							}
+						} else {
+							LOG("%s(): found array\n", __FUNCTION__);
+							return jt_json_sub_get_object_by_path(at, sub, path);
+						}
+					} else {
+						LOG("%s(): reject array\n", __FUNCTION__);
+						return NULL;
+					}
+					break;
+
+				default:
+					/* Unexpected type */
+					LOG("%s(): wrong path\n", __FUNCTION__);
+					return NULL;
+			}
+		}
+	}
+	return NULL;
+}
+
+json_object *jt_json_get_object_by_path(jt_access_token_t *at, const char *format, ...) {
+	va_list ap;
+	json_object *rv;
+	char *path = NULL;
+	int ret;
+
+	if (at->transfer.jobj == NULL) {
+		LOG_ERROR("Called jt_json_get_string with invalid jobj.\n");
+		return NULL;
+	}
+
+	if (is_error(at->transfer.jobj)) {
+		return NULL;
+	}
+
+	va_start(ap, format);
+	ret = vasprintf(&path, format, ap);
+	va_end(ap);
+	if (ret == -1) {
+		path = NULL;
+		return NULL;
+	}
+	LOG("%s() path %s jobj %p\n", __FUNCTION__, path, at->transfer.jobj);
+	if (path == NULL) {
+		return NULL;
+	}
+	rv = jt_json_sub_get_object_by_path(at, at->transfer.jobj, path);
+	free(path);
+	path = NULL;
+
+	LOG("%s() path %s = %s\n", __FUNCTION__, path, rv);
 
 	return rv;
 }

@@ -13,6 +13,11 @@
  */
 
 #include <curl/curl.h>
+#ifdef JSONC
+#include <json-c/json.h>
+#else
+#include <json/json.h>
+#endif
 
 /*
  * The libjt provides support for accessing youtube accounts and videos.
@@ -309,17 +314,26 @@ const char *jt_get_error_code(int rv);
  * Get JSON string from last transfer by path.
  * @param format Printf-like format string for JSON path.
  * @returns Pointer to string of JSON value at path. The pointer is valid until
- *	the next transfer.
+ *	jt_free_transfer(at) is called.
  * @return NULL on error.
  */
 const char *jt_json_get_string_by_path(jt_access_token_t *at, const char *format, ...);
+
+/**
+ * Get JSON object from last transfer by path.
+ * @param format Printf-like format string for JSON path.
+ * @returns Pointer to a JSON object at path. The pointer is valid until
+ *	jt_free_transfer(at) is called.
+ * @return NULL on error.
+ */
+json_object *jt_json_get_object_by_path(jt_access_token_t *at, const char *format, ...);
 
 /**
  * Get JSON integer from last transfer by path.
  * @param format Printf-like format string for JSON path.
  * @param value Pointer to returned value.
  * @returns Pointer to string of JSON value at path. The pointer is valid until
- *	the next transfer.
+ *	jt_free_transfer(at) is called.
  * @return JT_OK On success.
  * @return JT_PATH_BAD_ARRAY Bad array index.
  * @return JT_PATH_TOO_LONG The path is too long.

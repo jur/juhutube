@@ -18,7 +18,7 @@ OBJCOPY=$(CROSS_COMPILE)objcopy
 STRIP=$(CROSS_COMPILE)strip
 
 MACHINE = $(shell $(CC) -dumpmachine)
-BUILDROOT_MACHINE = $(shell echo "$(MACHINE)" | grep -e buildroot)
+JSONC = $(shell LANG=C $(CC) -E -v - </dev/null 2>&1 1>/dev/null | sed -e "1,/\#include <...>/d" -e "/End of search list/,\$$d" | while read dir; do if [ -d $$dir/json-c ]; then echo yes; fi; done)
 LIBJTDIR = $(LIBJTBASEDIR)/libjt/lib-$(MACHINE)
 LIBJT = $(LIBJTDIR)/libjt.a
 
@@ -28,11 +28,11 @@ CPPFLAGS += -I$(LIBJTBASEDIR)/libjt/include
 LDFLAGS += -L$(LIBJTDIR)
 LDLIBS += $(LIBJT)
 LDLIBS += -lcurl
-ifeq ($(BUILDROOT_MACHINE),)
+ifeq ($(JSONC),)
 LDLIBS += -ljson
 else
 # buldroot uses a different name for the library
 LDLIBS += -ljson-c
-CPPFLAGS += -DBUILD_WITH_BUILDROOT=1
+CPPFLAGS += -DJSONC=1
 endif
 LDLIBS += -lssl -lcrypto -ldl -lz
