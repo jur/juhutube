@@ -11,6 +11,10 @@ The following webpage describes how you get this:
 https://developers.google.com/youtube/registering_an_application
 You need to choose OAuth 2.0.
 
+You can also download the JSON file from the Google Developer Console and
+store it here: $HOME/.client_secret.json
+Then you don't need to change clientid.h.
+
 When you edited clientid.h, you can run:
 make
 

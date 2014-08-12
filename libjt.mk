@@ -36,3 +36,5 @@ LDLIBS += -ljson-c
 CPPFLAGS += -DJSONC=1
 endif
 LDLIBS += -lssl -lcrypto -ldl -lz
+
+PREFIX = /usr/local

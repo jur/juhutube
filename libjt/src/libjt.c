@@ -102,6 +102,8 @@ struct jt_access_token_s {
 	char *error_description;
 };
 
+static void *jt_load_file(jt_access_token_t *at, const char *filename);
+
 char *jt_strdup(const char *text)
 {
 	if (text != NULL) {
@@ -135,8 +137,8 @@ static size_t jt_mem_callback(void *contents, size_t size, size_t nmemb,
 }
 
 
-jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
-	const char *client_secret, const char *token_file,
+static jt_access_token_t *jt_alloc_internal(FILE *logfd, FILE *errfd,
+	const char *token_file,
 	const char *refresh_token_file, unsigned int flags)
 {
 	jt_access_token_t *at;
@@ -152,8 +154,6 @@ jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
 
 	LOG("%s()\n", __FUNCTION__);
 
-	at->client_id = jt_strdup(client_id);
-	at->client_secret = jt_strdup(client_secret);
 	at->token_file = jt_strdup(token_file);
 	at->refresh_token_file = jt_strdup(refresh_token_file);
 
@@ -180,6 +180,59 @@ jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
 	}
 
 
+	return at;
+}
+
+jt_access_token_t *jt_alloc_by_file(FILE *logfd, FILE *errfd,
+	const char *secret_file,
+	const char *token_file,
+	const char *refresh_token_file,
+	unsigned int flags)
+{
+	jt_access_token_t *at;
+	void *sec;
+
+	at = jt_alloc_internal(logfd, errfd, token_file, refresh_token_file, flags);
+	if (at == NULL) {
+		return NULL;
+	}
+
+	sec = jt_load_file(at, secret_file);
+	if (sec == NULL) {
+		LOG_ERROR("Out of memory\n");
+	} else if (sec == ((void *) -1)) {
+		LOG_ERROR("Failed to load %s. Please download file from Google Developer Console, see https://developers.google.com/youtube/v3/\n", secret_file);
+	} else {
+		at->transfer.jobj = json_tokener_parse(sec);
+		if ((at->transfer.jobj == NULL) || is_error(at->transfer.jobj)) {
+			LOG_ERROR("Failed to parse %s. Please download file from Google Developer Console, see https://developers.google.com/youtube/v3/\n", secret_file);
+		} else {
+			at->client_id = jt_strdup(jt_json_get_string_by_path(at, "/installed/client_id"));
+			at->client_secret = jt_strdup(jt_json_get_string_by_path(at, "/installed/client_secret"));
+
+			json_object_put(at->transfer.jobj);
+			at->transfer.jobj = NULL;
+		}
+
+		free(sec);
+		sec = NULL;
+	}
+
+	return at;
+}
+
+jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
+	const char *client_secret, const char *token_file,
+	const char *refresh_token_file, unsigned int flags)
+{
+	jt_access_token_t *at;
+
+	at = jt_alloc_internal(logfd, errfd, token_file, refresh_token_file, flags);
+	if (at == NULL) {
+		return NULL;
+	}
+	at->client_id = jt_strdup(client_id);
+	at->client_secret = jt_strdup(client_secret);
 	return at;
 }
 
@@ -1334,7 +1387,12 @@ int jt_get_my_subscriptions(jt_access_token_t *at, const char *pageToken)
 
 	LOG("%s()\n", __FUNCTION__);
 
-	rv = jt_load_json_refreshing(at, NULL, "subscriptions.json",
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"subscriptions.json",
+#else
+		NULL,
+#endif
 		"https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=1&pageToken=%s",
 		pageToken);
 
@@ -1347,7 +1405,12 @@ int jt_get_channels(jt_access_token_t *at, const char *channelId, const char *pa
 
 	LOG("%s()\n", __FUNCTION__);
 
-	rv = jt_load_json_refreshing(at, NULL, "channels.json",
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"channels.json",
+#else
+		NULL,
+#endif
 		"https://www.googleapis.com/youtube/v3/channels?part=snippet%%2CcontentDetails&id=%s&pageToken=%s",
 		channelId,
 		pageToken);
@@ -1361,7 +1424,12 @@ int jt_get_my_channels(jt_access_token_t *at, const char *pageToken)
 
 	LOG("%s()\n", __FUNCTION__);
 
-	rv = jt_load_json_refreshing(at, NULL, "mychannels.json",
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"mychannels.json",
+#else
+		NULL,
+#endif
 		"https://www.googleapis.com/youtube/v3/channels?part=snippet%%2CcontentDetails&mine=true&pageToken=%s",
 		pageToken);
 
@@ -1374,7 +1442,12 @@ int jt_get_playlist(jt_access_token_t *at, const char *playlistid, const char *p
 
 	LOG("%s()\n", __FUNCTION__);
 
-	rv = jt_load_json_refreshing(at, NULL, "playlist.json",
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"playlist.json",
+#else
+		NULL,
+#endif
 		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&id=%s&maxResults=50&pageToken=%s",
 		playlistid,
 		pageToken);
@@ -1388,7 +1461,12 @@ int jt_get_my_playlist(jt_access_token_t *at, const char *pageToken)
 
 	LOG("%s()\n", __FUNCTION__);
 
-	rv = jt_load_json_refreshing(at, NULL, "myplaylist.json",
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"myplaylist.json",
+#else
+		NULL,
+#endif
 		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&mine=true&maxResults=1&pageToken=%s",
 		pageToken);
 
@@ -1401,7 +1479,12 @@ int jt_get_playlist_items(jt_access_token_t *at, const char *playlistid, const c
 
 	LOG("%s()\n", __FUNCTION__);
 
-	rv = jt_load_json_refreshing(at, NULL, "playlistitem.json",
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"playlistitem.json",
+#else
+		NULL,
+#endif
 		"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet%%2CcontentDetails&playlistId=%s&maxResults=20&pageToken=%s",
 		playlistid,
 		pageToken);

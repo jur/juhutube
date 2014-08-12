@@ -21,7 +21,7 @@ LDLIBS += -lSDL -lSDL_image -lSDL_ttf
 BFDTARGET = $(shell LANG=C $(OBJCOPY) --help | grep -e "supported targets:" | sed -e 's-^.*supported targets: *--g' | cut -d ' ' -f 1)
 BFDARCH = $(shell LANG=C $(OBJDUMP) --help | grep -e "supported architectures:" | sed -e 's-^.*supported architectures: *--g' | cut -d ' ' -f 1)
 
-.PHONY: test all clean
+.PHONY: test all install clean
 
 ifeq ($(BUILDROOT_MACHINE),)
 test: all
@@ -30,7 +30,9 @@ test: all
 endif
 
 all: $(PROGRAM)
-	echo DEPS $(DEPS)
+
+install: all
+	install -D $(PROGRAM) "$(PREFIX)/bin/"
 
 $(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
 	@mkdir -p $(BINDIR)

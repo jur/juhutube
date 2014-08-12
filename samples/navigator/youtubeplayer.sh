@@ -1,5 +1,9 @@
 #!/bin/bash
-PROGRAM="${1:-./navigator}"
+DEFAULTPROGRAM="/usr/local/bin/ytnavigator"
+PROGRAM="$1"
+if [ -z "$PROGRAM" ]; then
+	PROGRAM="$DEFAULTPROGRAM"
+fi
 echo "Initializing..."
 AGENT="$(youtube-dl --dump-user-agent)"
 

@@ -2,5 +2,5 @@
 
 SUBDIRS = getvideolist getthumbnail navigator
 
-all clean:
+all install clean:
 	@for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@ || exit 1; done

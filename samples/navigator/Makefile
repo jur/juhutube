@@ -13,7 +13,7 @@ OBJS = $(addprefix $(OBJDIR)/,$(addsuffix .o,$(MODS)))
 DEPS = $(addprefix $(DEPDIR)/,$(addsuffix .d,$(MODS)))
 
 
-PROGRAM = $(BINDIR)/navigator
+PROGRAM = $(BINDIR)/ytnavigator
 
 CPPFLAGS += -I../include
 CPPFLAGS += -DDEBUG -g
@@ -30,7 +30,11 @@ test: all
 endif
 
 all: $(PROGRAM)
-	echo DEPS $(DEPS)
+
+install: all
+	install -D $(PROGRAM) "$(PREFIX)/bin/"
+	sed -i youtubeplayer.sh -e "s-DEFAULTPROGRAM=.*\$$-DEFAULTPROGRAM=\"$(PREFIX)/bin/ytnavigator\"-g"
+	install -D youtubeplayer.sh "$(PREFIX)/bin/"
 
 $(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
 	@mkdir -p $(BINDIR)

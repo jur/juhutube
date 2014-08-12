@@ -11,9 +11,13 @@ DEPS = $(addprefix $(DEPDIR)/,$(addsuffix .d,$(MODS)))
 #CPPFLAGS += -DDEBUG
 CPPFLAGS += -g
 
-.PHONY: test all clean
+.PHONY: test all install clean
 
 all: $(LIBJT)
+
+install: all
+	install -D include/libjt.h "$(PREFIX)/include/"
+	install -D $(LIBJT) "$(PREFIX)/lib/"
 
 $(LIBJT): $(OBJS)
 	@mkdir -p $(LIBJTDIR)

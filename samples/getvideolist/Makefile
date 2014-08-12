@@ -16,7 +16,7 @@ PROGRAM = $(BINDIR)/getvideolist
 CPPFLAGS += -I../include
 CPPFLAGS += -DDEBUG -g
 
-.PHONY: test all clean
+.PHONY: test all install clean
 
 ifeq ($(BUILDROOT_MACHINE),)
 test: all
@@ -25,6 +25,9 @@ test: all
 endif
 
 all: $(PROGRAM)
+
+install: all
+	install -D $(PROGRAM) "$(PREFIX)/bin/"
 
 $(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
 	@mkdir -p $(BINDIR)

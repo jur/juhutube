@@ -13,8 +13,9 @@
 #include "clientid.h"
 #include "libjt.h"
 
-#define TOKEN_FILE "youtubetoken.json"
-#define REFRESH_TOKEN_FILE "refreshtoken.json"
+#define TOKEN_FILE ".youtubetoken.json"
+#define REFRESH_TOKEN_FILE ".refreshtoken.json"
+#define SECRET_FILE ".client_secret.json"
 
 /** Maximum images loaded while painting. */
 #define MAX_LOAD_WHILE_PAINT 1
@@ -496,6 +497,13 @@ static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 gui_t *gui_alloc(void)
 {
 	gui_t *gui;
+	const char *home;
+#ifndef CLIENT_SECRET
+	char *secretfile = NULL;
+#endif
+	int ret;
+	char *tokenfile = NULL;
+	char *refreshtokenfile = NULL;
 
 	gui = malloc(sizeof(*gui));
 	if (gui == NULL) {
@@ -553,7 +561,49 @@ gui_t *gui_alloc(void)
 		return NULL;
 	}
 
-	gui->at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, TOKEN_FILE, REFRESH_TOKEN_FILE, 0);
+	home = getenv("HOME");
+	if (home == NULL) {
+		LOG_ERROR("Environment variable HOME is not set.\n");
+		gui_free(gui);
+		return NULL;
+	}
+
+	ret = asprintf(&tokenfile, "%s/%s", home, TOKEN_FILE);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		gui_free(gui);
+		return NULL;
+	}
+
+	ret = asprintf(&refreshtokenfile, "%s/%s", home, REFRESH_TOKEN_FILE);
+	if (ret == -1) {
+		free(tokenfile);
+		tokenfile = NULL;
+		LOG_ERROR("Out of memory\n");
+		gui_free(gui);
+		return NULL;
+	}
+
+#ifndef CLIENT_SECRET
+	ret = asprintf(&secretfile, "%s/%s", home, SECRET_FILE);
+	if (ret == -1) {
+		free(refreshtokenfile);
+		refreshtokenfile = NULL;
+		free(tokenfile);
+		tokenfile = NULL;
+		LOG_ERROR("Out of memory\n");
+		gui_free(gui);
+		return NULL;
+	}
+#endif
+
+#ifdef CLIENT_SECRET
+	gui->at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, 0);
+#else
+	gui->at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, 0);
+#endif
+
+
 	if (gui->at == NULL) {
 		LOG_ERROR("Out of memory\n");
 		gui_free(gui);
@@ -1619,13 +1669,22 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat)
 										k[0] = toupper(k[0]);
 									}
 									ret = asprintf(&t, "%s - %s", title, k);
+									if (ret == -1) {
+										t = NULL;
+									}
 									free(k);
 									k = NULL;
 								} else {
 									ret = asprintf(&t, "%s - %s", title, key);
+									if (ret == -1) {
+										t = NULL;
+									}
 								}
 							} else {
 								ret = asprintf(&t, "%s", key);
+								if (ret == -1) {
+									t = NULL;
+								}
 							}
 							if (ret != -1) {
 								if (cat->title != NULL) {
@@ -1683,6 +1742,8 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 				free(cmd);
 				cmd = NULL;
 			}
+		} else {
+			cmd = NULL;
 		}
 		return 1;
 	} else {
@@ -2458,11 +2519,11 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 						error = jt_get_error_description(gui->at);
 						if (error != NULL) {
 							gui->statusmsg = buf_printf(gui->statusmsg, "%s", error);
-							LOG_ERROR("%s", error);
+							LOG_ERROR("%s\n", error);
 						} else {
 							error = jt_get_protocol_error(gui->at);
 							gui->statusmsg = buf_printf(gui->statusmsg, "Error: %s", error);
-							LOG_ERROR("Error: %s", error);
+							LOG_ERROR("Error: %s\n", error);
 						}
 						break;
 
@@ -2488,12 +2549,22 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 								break;
 						}
 						break;
+
+					case JT_ERROR_CLIENT_ID:
+#ifndef CLIENT_SECRET
+						gui->statusmsg = buf_printf(gui->statusmsg, "Please download the client id and secret as JSON file from https://developers.google.com/youtube/v3/ and store it in your home directory at %s.", SECRET_FILE);
+						LOG_ERROR("Please download the client id and secret as JSON file from https://developers.google.com/youtube/v3/ and store it in your home directory at %s.\n", SECRET_FILE);
+#else
+						gui->statusmsg = buf_printf(gui->statusmsg, "Please get the client id and secret and fix client.h in the source code of this program.");
+						LOG_ERROR("Please get the client id and secret and fix client.h in the source code of this program.\n");
+#endif
+						break;
 					}
 
 					default:
 						error = jt_get_error_code(rv);
 						gui->statusmsg = buf_printf(gui->statusmsg, "Error: %s", error);
-						LOG_ERROR("Error: %s", error);
+						LOG_ERROR("Error: %s\n", error);
 						break;
 				}
 

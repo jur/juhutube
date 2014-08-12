@@ -101,9 +101,9 @@ typedef struct jt_access_token_s jt_access_token_t;
  * @param client_secret Client secret of the application.
  * @param token_file Path to file where token file should be stored for the
  *        current youtube user.
- * @param 0 (with security), JT_FLAG_NO_CERT or JT_FLAG_NO_HOST_CHECK.
  * @param refresh_token_file Path to file where a refreshed token file should
  *        be stored for the current youtube user.
+ * @param flags 0 (with security), JT_FLAG_NO_CERT or JT_FLAG_NO_HOST_CHECK.
  *
  * The string parameters are internally copied and the memory will be freed when
  * jt_free() is called.
@@ -112,8 +112,35 @@ typedef struct jt_access_token_s jt_access_token_t;
  * https://developers.google.com/youtube/registering_an_application
  */
 jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
-	const char *client_secret, const char *token_file,
-	const char *refresh_token_file, unsigned int flags);
+	const char *client_secret,
+	const char *token_file,
+	const char *refresh_token_file,
+	unsigned int flags);
+
+/**
+ * Get an access token for google youtube.
+ *
+ * @param logfd File descriptor where debug messages are logged.
+ * @param errfd File descriptor where error messages are logged.
+ * @param secret_file Path to client secret file as downloaded from Googles
+ *        Developer Console.
+ * @param token_file Path to file where token file should be stored for the
+ *        current youtube user.
+ * @param refresh_token_file Path to file where a refreshed token file should
+ *        be stored for the current youtube user.
+ * @param flags 0 (with security), JT_FLAG_NO_CERT or JT_FLAG_NO_HOST_CHECK.
+ *
+ * The string parameters are internally copied and the memory will be freed when
+ * jt_free() is called.
+ *
+ * Get OAuth 2.0 client ID and client secret for the developer here:
+ * https://developers.google.com/youtube/registering_an_application
+ */
+jt_access_token_t *jt_alloc_by_file(FILE *logfd, FILE *errfd,
+	const char *secret_file,
+	const char *token_file,
+	const char *refresh_token_file,
+	unsigned int flags);
 
 /**
  * Free memory which were allocated, including all string returned by any

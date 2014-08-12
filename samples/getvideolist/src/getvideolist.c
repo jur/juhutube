@@ -10,6 +10,7 @@
  * Copyright Juergen Urban
  *
  */
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,8 +21,9 @@
 #include "libjt.h"
 #include "clientid.h"
 
-#define TOKEN_FILE "youtubetoken.json"
-#define REFRESH_TOKEN_FILE "refreshtoken.json"
+#define TOKEN_FILE ".youtubetoken.json"
+#define REFRESH_TOKEN_FILE ".refreshtoken.json"
+#define SECRET_FILE ".client_secret.json"
 
 #define dprintf(args...) \
 	do { \
@@ -440,9 +442,52 @@ static int login(jt_access_token_t *at)
 void get_videolist_main(void)
 {
 	jt_access_token_t *at;
+	const char *home;
+#ifndef CLIENT_SECRET
+	char *secretfile = NULL;
+#endif
+	int ret;
+	char *tokenfile = NULL;
+	char *refreshtokenfile = NULL;
 	int rv;
 
-	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, TOKEN_FILE, REFRESH_TOKEN_FILE, 0);
+	home = getenv("HOME");
+	if (home == NULL) {
+		LOG_ERROR("Environment variable HOME is not set.\n");
+		return;
+	}
+
+	ret = asprintf(&tokenfile, "%s/%s", home, TOKEN_FILE);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
+	ret = asprintf(&refreshtokenfile, "%s/%s", home, REFRESH_TOKEN_FILE);
+	if (ret == -1) {
+		free(tokenfile);
+		tokenfile = NULL;
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
+#ifndef CLIENT_SECRET
+	ret = asprintf(&secretfile, "%s/%s", home, SECRET_FILE);
+	if (ret == -1) {
+		free(refreshtokenfile);
+		refreshtokenfile = NULL;
+		free(tokenfile);
+		tokenfile = NULL;
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+#endif
+
+#ifdef CLIENT_SECRET
+	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, 0);
+#else
+	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, 0);
+#endif
 
 	/* Log into YouTube account. */
 	rv = login(at);
