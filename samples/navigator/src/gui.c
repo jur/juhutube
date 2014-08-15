@@ -504,6 +504,7 @@ gui_t *gui_alloc(void)
 	int ret;
 	char *tokenfile = NULL;
 	char *refreshtokenfile = NULL;
+	const SDL_VideoInfo *info;
 
 	gui = malloc(sizeof(*gui));
 	if (gui == NULL) {
@@ -541,9 +542,13 @@ gui_t *gui_alloc(void)
 		return NULL;
 	}
 
-	gui->screen = SDL_SetVideoMode(640, 480, 16, SDL_SWSURFACE);
+	info = SDL_GetVideoInfo();
+	if (info != NULL)
+		gui->screen = SDL_SetVideoMode(info->current_w, info->current_h, 16, SDL_SWSURFACE | SDL_ANYFORMAT | SDL_FULLSCREEN);
+	if (gui->screen == NULL)
+		gui->screen = SDL_SetVideoMode(640, 480, 16, SDL_SWSURFACE | SDL_ANYFORMAT | SDL_FULLSCREEN);
 	if (gui->screen == NULL) {
-		LOG_ERROR("Couldn't set 640x480x8 video mode: %s\n", SDL_GetError());
+		LOG_ERROR("Couldn't set 640x480x16 video mode: %s\n", SDL_GetError());
 		gui_free(gui);
 		return NULL;
 	}
