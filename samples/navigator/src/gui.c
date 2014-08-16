@@ -28,15 +28,20 @@
 /** How many categories should preserve the large thumbnails.
  * Foward and backward from the current selected category.
  */
-#define PRESERVE_MEDIUM_IMAGES 2
+#define PRESERVE_MEDIUM_IMAGES 4
 /** How many categories should preserve the small thumbnails.
  * Foward and backward from the current selected category.
  */
-#define PRESERVE_SMALL_IMAGES 4
+#define PRESERVE_SMALL_IMAGES 15
 /** How many categories should be stored in memory.
  * Foward and backward from the current selected category.
  */
-#define PRESERVE_CAT 20
+#define PRESERVE_CAT 40
+
+/** How many videos are preserved in each category 2 * PRESERVE_ELEM * results
+ * per page (YouTube API)
+ */
+#define PRESERVE_ELEM 3
 
 /** Default wait time for a message to display in frames. */
 #define DEFAULT_SLEEP (4 * 50)
@@ -88,6 +93,8 @@ enum gui_state {
 	GUI_STATE_GET_MY_PREV_CHANNELS,
 	GUI_STATE_GET_CHANNELS,
 	GUI_STATE_GET_PREV_CHANNELS,
+	GUI_STATE_GET_CHANNEL_PLAYLIST,
+	GUI_STATE_GET_PREV_CHANNEL_PLAYLIST,
 	GUI_STATE_RUNNING,
 	GUI_STATE_PLAY_VIDEO,
 	GUI_STATE_PLAY_PREV_VIDEO,
@@ -115,6 +122,8 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_GET_PREV_CHANNELS)
 		CASESTATE(GUI_STATE_GET_MY_CHANNELS)
 		CASESTATE(GUI_STATE_GET_MY_PREV_CHANNELS)
+		CASESTATE(GUI_STATE_GET_CHANNEL_PLAYLIST)
+		CASESTATE(GUI_STATE_GET_PREV_CHANNEL_PLAYLIST)
 		CASESTATE(GUI_STATE_RUNNING)
 		CASESTATE(GUI_STATE_PLAY_VIDEO)
 		CASESTATE(GUI_STATE_PLAY_PREV_VIDEO)
@@ -1105,6 +1114,10 @@ static char *gui_get_prevPageToken(gui_cat_t *cat)
 				prevPageToken = cat->subscriptionPrevPageToken;
 				break;
 
+			case GUI_STATE_GET_PREV_CHANNEL_PLAYLIST:
+				prevPageToken = cat->channelPrevPageToken;
+				break;
+
 			case GUI_STATE_GET_MY_PREV_CHANNELS:
 #if 0
 				prevPageToken = cat->channelPrevPageToken;
@@ -1140,6 +1153,10 @@ static char *gui_get_nextPageToken(gui_cat_t *cat)
 
 			case GUI_STATE_GET_SUBSCRIPTIONS:
 				nextPageToken = cat->subscriptionNextPageToken;
+				break;
+
+			case GUI_STATE_GET_CHANNEL_PLAYLIST:
+				nextPageToken = cat->channelNextPageToken;
 				break;
 
 			case GUI_STATE_GET_MY_CHANNELS:
@@ -1271,7 +1288,7 @@ static void gui_inc_elem(gui_t *gui)
 				char *prevPageToken;
 
 				prevPageToken = elem->prevPageToken;
-				if (n >= 2) {
+				if (n >= PRESERVE_ELEM) {
 					gui_elem_t *n;
 
 					/* Temporary remove list from memory.
@@ -1319,7 +1336,7 @@ static void gui_dec_elem(gui_t *gui)
 				char *nextPageToken;
 
 				nextPageToken = elem->nextPageToken;
-				if (n >= 2) {
+				if (n >= PRESERVE_ELEM) {
 					gui_elem_t *n;
 
 					/* Temporary remove list from memory.
@@ -1863,6 +1880,135 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat, const char *s
 	return rv;
 }
 
+static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *channelid, const char *catpagetoken, int subnr, const char *videopagetoken, int vidnr)
+{
+	int rv;
+	int channelNr;
+	const char *pageToken;
+
+	if ((selected_cat == NULL) || (selected_cat->nextPageState != GUI_STATE_GET_CHANNEL_PLAYLIST)) {
+		/* Get first page. */
+		channelNr = 0;
+		pageToken = "";
+	} else {
+		/* Get next page. */
+		channelNr = selected_cat->channelNr;
+		pageToken = selected_cat->channelNextPageToken;
+		if (reverse) {
+			pageToken = selected_cat->channelPrevPageToken;
+		} else {
+			pageToken = selected_cat->channelNextPageToken;
+			channelNr++;
+		}
+	}
+	if (catpagetoken != NULL) {
+		pageToken = catpagetoken;
+		channelNr = subnr;
+	} else {
+		if (selected_cat != NULL) {
+			channelid = selected_cat->channelid;
+		}
+	}
+	rv = jt_get_channel_playlists(gui->at, channelid, pageToken);
+	if (rv == JT_OK) {
+		int totalResults = 0;
+		int resultsPerPage = 0;
+		int i;
+		gui_cat_t *last;
+
+		if (reverse) {
+			if (selected_cat != NULL) {
+				last = selected_cat->prev;
+			}
+		} else {
+			if ((selected_cat != NULL) && (selected_cat->nextPageState == GUI_STATE_GET_CHANNEL_PLAYLIST)) {
+				last = selected_cat;
+			} else {
+				last = NULL;
+			}
+		}
+
+		rv = jt_json_get_int_by_path(gui->at, &totalResults, "/pageInfo/totalResults");
+		if (rv != JT_OK) {
+			totalResults = 0;
+		}
+
+		rv = jt_json_get_int_by_path(gui->at, &resultsPerPage, "/pageInfo/resultsPerPage");
+		if (rv != JT_OK) {
+			resultsPerPage = 0;
+		}
+		if (reverse) {
+			channelNr -= resultsPerPage;
+		}
+		for (i = 0; (i < resultsPerPage) && (channelNr < totalResults); i++) {
+			const char *playlistid;
+
+			playlistid = jt_json_get_string_by_path(gui->at, "/items[%d]/id", i);
+			if (playlistid != NULL) {
+				gui_cat_t *cat = selected_cat;
+
+				if ((cat == NULL) || (cat->playlistid != NULL)) {
+					/* Need to add new cat for playlist. */
+					cat = gui_cat_alloc(gui, &gui->get_playlist_cat, last);
+					if (cat == NULL) {
+						LOG_ERROR("Out of memory.\n");
+					}
+				}
+
+				if (cat != NULL) {
+					char *title;
+					const char *channelid;
+
+					last = cat;
+
+					cat->nextPageState = GUI_STATE_GET_CHANNEL_PLAYLIST;
+					cat->prevPageState = GUI_STATE_GET_PREV_CHANNEL_PLAYLIST;
+					cat->channelNr = channelNr;
+					channelid = jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/channelId", i);
+
+					if (channelid != NULL) {
+						if (cat->channelid != NULL) {
+							free(cat->channelid);
+							cat->channelid = NULL;
+						}
+						cat->channelid = strdup(channelid);
+					}
+					cat->playlistid = strdup(playlistid);
+			 		title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
+					if (title != NULL) {
+						if (cat->title != NULL) {
+							free(cat->title);
+							cat->title = NULL;
+						}
+						cat->title = title;
+					}
+					cat->videopagetoken = videopagetoken;
+					cat->vidnr = vidnr;
+					if (i == 0) {
+						cat->channelPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
+						/* If this is new, automatically select the playlist. */
+						if ((selected_cat == NULL) || (selected_cat->nextPageState != cat->nextPageState)) {
+							if (!reverse) {
+								gui->current = cat;
+							}
+						}
+					}
+				}
+			}
+			channelNr++;
+		}
+		if (last != NULL) {
+			if (last->channelNextPageToken != NULL) {
+				free(last->channelNextPageToken);
+				last->channelNextPageToken = NULL;
+			}
+			last->channelNextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
+		}
+		jt_free_transfer(gui->at);
+	}
+	return rv;
+}
+
 static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem_t *elem, int format, int buffersize)
 {
 	if (videofile == NULL) {
@@ -1915,6 +2061,11 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 				fprintf(fout, "PLAYLISTID=\"%s\"\n", cat->playlistid);
 			} else {
 				fprintf(fout, "PLAYLISTID=\"\"\n");
+			}
+			if (cat->channelid != NULL) {
+				fprintf(fout, "CHANNELID=\"%s\"\n", cat->channelid);
+			} else {
+				fprintf(fout, "CHANNELID=\"\"\n");
 			}
 			if ((cat->next != NULL) && (cat->next != gui->categories) && (gui_get_prevPageToken(cat->next) != NULL)) {
 				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_prevPageToken(cat->next));
@@ -1980,7 +2131,10 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 	if (cat != NULL) {
 		gui_elem_t *p;
 
-		printf("Category is subnr %d: playlistid %s: %s\n", cat->subnr, cat->playlistid, cat->title);
+		printf("Category is subnr %d: playlistid %s: nextPage %s:%s prevPage %s:%s: %s\n",
+			cat->subnr, cat->playlistid,
+			get_state_text(cat->nextPageState), gui_get_nextPageToken(cat),
+			get_state_text(cat->prevPageState), gui_get_prevPageToken(cat), cat->title);
 
 		p = cat->elem;
 		while (p != NULL) {
@@ -2000,7 +2154,7 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 /**
  * Main loop for GUI.
  */
-int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
+int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
 {
 	int done;
 	SDL_Event event;
@@ -2080,6 +2234,18 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											/* Play playlist backward. */
 											retval = 3;
 										}
+									}
+								}
+							}
+							break;
+						}
+
+						case SDLK_p: {
+							if (curstate == GUI_STATE_RUNNING) {
+								if (gui->statusmsg == NULL) {
+									if (gui->current != NULL) {
+										gui->cur_cat = gui->current;
+										state = GUI_STATE_GET_CHANNEL_PLAYLIST;
 									}
 								}
 							}
@@ -2626,21 +2792,19 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				break;
 
 			case GUI_STATE_GET_SUBSCRIPTIONS: {
-				if (((enum gui_state) getstate) != state) {
+				if (((enum gui_state) getstate) == state) {
+					rv = update_subscriptions(gui, gui->cur_cat, 0, catpagetoken, catnr, videopagetoken, vidnr);
 					catpagetoken = NULL;
+				} else {
+					rv = update_subscriptions(gui, gui->cur_cat, 0, NULL, 0, NULL, 0);
 				}
-				rv = update_subscriptions(gui, gui->cur_cat, 0, catpagetoken, catnr, videopagetoken, vidnr);
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
-					/* Retry it without catpagetoken. */
-					if (catpagetoken != NULL) {
-						state = GUI_STATE_ERROR;
-						wakeupcount = DEFAULT_SLEEP;
-						nextstate = GUI_STATE_RUNNING;
-					}
+					state = GUI_STATE_ERROR;
+					wakeupcount = DEFAULT_SLEEP;
+					nextstate = GUI_STATE_RUNNING;
 				}
-				catpagetoken = NULL;
 				gui->cur_cat = NULL;
 				break;
 			}
@@ -2704,7 +2868,12 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 									LOG_ERROR("Failed update_channels() for cat %s.\n", (gui->cur_cat != NULL) ? gui->cur_cat->title : "(null)");
 								} else {
 									state = GUI_STATE_GET_PLAYLIST;
-									afterplayliststate = GUI_STATE_RUNNING;
+									if (catpagetoken != NULL) {
+										/* Load selected category (was selected before restart). */
+										afterplayliststate = getstate;
+									} else {
+										afterplayliststate = GUI_STATE_RUNNING;
+									}
 								}
 							}
 						}
@@ -2724,6 +2893,43 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				}
 				gui->cur_cat = NULL;
 				break;
+
+			case GUI_STATE_GET_CHANNEL_PLAYLIST:
+			case GUI_STATE_GET_PREV_CHANNEL_PLAYLIST: {
+				int reverse;
+
+				if (state == GUI_STATE_GET_CHANNEL_PLAYLIST) {
+					reverse = 0;
+				} else if (state == GUI_STATE_GET_PREV_CHANNEL_PLAYLIST) {
+					reverse = 1;
+				} else {
+					reverse = 0;
+					LOG_ERROR("Unsupported state: %d %s.\n", state, get_state_text(state));
+				}
+				if (((enum gui_state) getstate) == state) {
+					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, catpagetoken, catnr, videopagetoken, vidnr);
+					catpagetoken = NULL;
+				} else {
+					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, NULL, 0, NULL, 0);
+				}
+				if (rv == JT_OK) {
+					if (gui->get_playlist_cat == NULL) {
+						state = GUI_STATE_RUNNING;
+						wakeupcount = DEFAULT_SLEEP;
+						gui->statusmsg = buf_printf(gui->statusmsg, "No playlists for cat %s.", (gui->cur_cat != NULL) ? gui->cur_cat->title : "(null)");
+						LOG_ERROR("No playlists for %s.\n", (gui->cur_cat != NULL) ? gui->cur_cat->title : "(null)");
+					} else {
+						state = GUI_STATE_GET_PLAYLIST;
+						afterplayliststate = GUI_STATE_RUNNING;
+					}
+				} else {
+					nextstate = GUI_STATE_RUNNING;
+					state = GUI_STATE_ERROR;
+					wakeupcount = DEFAULT_SLEEP;
+				}
+				gui->cur_cat = NULL;
+				break;
+			}
 
 			case GUI_STATE_RUNNING:
 				/* No operation is pending. */

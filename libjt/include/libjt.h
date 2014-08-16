@@ -281,6 +281,22 @@ int jt_get_playlist(jt_access_token_t *at, const char *playlistid, const char *p
 int jt_get_my_playlist(jt_access_token_t *at, const char *pageToken);
 
 /**
+ * Get the playlist for the channelid.
+ * The function will automatically refresh access tokens when needed.
+ *
+ * @param channelid The ID of the channel (e.g. returned by jt_get_my_subscriptions()
+ *        at /items[0]/contentDetails/relatedPlaylists/uploads).
+ * @return JT_OK On success.
+ * @return JT_TRANSFER_ERROR When an HTTPS transfer error happened. Wrong
+ *         certificate, no DNS and other errors.
+ * @return JT_AUTH_ERROR When permission denied.
+ * @return JT_ERROR_ACCESS_TOKEN When jt_get_token() or jt_load_token() wasn't
+ *         called.
+ * @return JT_PROTOCOL_ERROR Protocol error.
+ */
+int jt_get_channel_playlists(jt_access_token_t *at, const char *channelid, const char *pageToken);
+
+/**
  * Get the playlist items for the playlistid.
  * The function will automatically refresh access tokens when needed.
  *

@@ -564,7 +564,7 @@ json_object *jt_json_get_object_by_path(jt_access_token_t *at, const char *forma
 	free(path);
 	path = NULL;
 
-	LOG("%s() path %s = %s\n", __FUNCTION__, path, rv);
+	LOG("%s() path %s = %p\n", __FUNCTION__, path, rv);
 
 	return rv;
 }
@@ -1468,6 +1468,25 @@ int jt_get_my_playlist(jt_access_token_t *at, const char *pageToken)
 		NULL,
 #endif
 		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&mine=true&maxResults=1&pageToken=%s",
+		pageToken);
+
+	return rv;
+}
+
+int jt_get_channel_playlists(jt_access_token_t *at, const char *channelid, const char *pageToken)
+{
+	int rv;
+
+	LOG("%s()\n", __FUNCTION__);
+
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"channelplaylist.json",
+#else
+		NULL,
+#endif
+		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&channelId=%s&maxResults=5&pageToken=%s",
+		channelid,
 		pageToken);
 
 	return rv;
