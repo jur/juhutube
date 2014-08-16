@@ -90,6 +90,7 @@ enum gui_state {
 	GUI_STATE_GET_PREV_CHANNELS,
 	GUI_STATE_RUNNING,
 	GUI_STATE_PLAY_VIDEO,
+	GUI_STATE_PLAY_PREV_VIDEO,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -116,6 +117,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_GET_MY_PREV_CHANNELS)
 		CASESTATE(GUI_STATE_RUNNING)
 		CASESTATE(GUI_STATE_PLAY_VIDEO)
+		CASESTATE(GUI_STATE_PLAY_PREV_VIDEO)
 	}
 	return "unknown";
 }
@@ -2035,6 +2037,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					/* Key pressed on keyboard. */
 					switch(event.key.keysym.sym) {
 						case SDLK_SPACE:
+						case SDLK_r:
 						case SDLK_RETURN: {
 							gui_cat_t *cat;
 
@@ -2054,9 +2057,14 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											 */
 											done = 1;
 											if (event.key.keysym.sym == SDLK_RETURN) {
+												/* Play current video only. */
 												retval = 1;
-											} else {
+											} else if (event.key.keysym.sym == SDLK_SPACE) {
+												/* Play playlist. */
 												retval = 2;
+											} else {
+												/* Play playlist backward. */
+												retval = 3;
 											}
 										}
 									}
@@ -2740,6 +2748,8 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							gui->cur_cat = cat;
 						}
 					}
+
+					/* Play next video in playlist. */
 					cat = gui->current;
 					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && (retval == 2)) {
 						if ((cat->current != NULL) && (cat->elem != NULL) && (cat->current->next == cat->elem)) {
@@ -2766,10 +2776,40 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 						}
 						retval = 0;
 					}
+
+					/* Play previous video in playlist. */
+					cat = gui->current;
+					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && (retval == 3)) {
+						if ((cat->current != NULL) && (cat->elem != NULL) && (cat->current->prev == cat->elem->prev)) {
+							gui_elem_t *first;
+
+							first = cat->elem;
+
+							if ((first->prevPageToken != NULL) && (curstate == GUI_STATE_RUNNING)) {
+								afterplayliststate = GUI_STATE_PLAY_PREV_VIDEO;
+								state = GUI_STATE_GET_PREV_PLAYLIST;
+								gui->cur_cat = cat;
+							}
+						} else {
+							gui_elem_t *elem;
+
+							elem = cat->current;
+
+							if (elem != NULL) {
+								gui_dec_elem(gui);
+							}
+							if (elem != cat->current) {
+								wakeupcount = DEFAULT_SLEEP;
+								state = GUI_STATE_PLAY_PREV_VIDEO;
+							}
+						}
+						retval = 0;
+					}
 				}
 				break;
 
 			case GUI_STATE_PLAY_VIDEO:
+			case GUI_STATE_PLAY_PREV_VIDEO:
 				if (gui->current != NULL) {
 					gui_cat_t *cat;
 					gui_elem_t *elem;
@@ -2787,7 +2827,13 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							 * to play the video.
 							 */
 							done = 1;
-							retval = 2;
+							if (state == GUI_STATE_PLAY_VIDEO) {
+								retval = 2;
+							} else if (state == GUI_STATE_PLAY_PREV_VIDEO) {
+								retval = 3;
+							} else {
+								LOG_ERROR("Unsupport play state: %d %s.\n", state, get_state_text(state));
+							}
 						}
 					}
 				}

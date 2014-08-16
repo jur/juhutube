@@ -34,3 +34,19 @@ a fully working web browser, Android or IOS installed). For streaming video you
 need to have youtube-dl and mplayer installed.
 
 http://rg3.github.io/youtube-dl/
+
+YTNavigator
+#########
+YTNavigator is an example program for navigating through your subscribed
+channels and play back videos. To use this program a YouTube account is
+required.
+
+You can navigate through the video playlists using the UP and DOWN keys.
+
+You can navigate through the videos using the LEFT and RIGHT keys.
+
+The current selected video is in the upper left corner.
+
+To playback a video press the RETURN key. When you want to playback a playlist
+starting with the current selected video, press SPACE. If you want to play the
+videos in the reverse order press the R key.
