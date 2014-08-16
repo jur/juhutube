@@ -243,6 +243,9 @@ struct gui_s {
 
 	/** Categories where channels needs to be loaded. */
 	gui_cat_t *get_channel_cat;
+
+	/** True if in fullscreen mode. */
+	int fullscreenmode;
 };
 
 /**
@@ -572,6 +575,7 @@ gui_t *gui_alloc(void)
 		gui_free(gui);
 		return NULL;
 	}
+	gui->fullscreenmode = 1;
 
 	gui->logorect.x = gui->screen->w - gui->logo->w - gui->mindistance;
 	gui->logorect.y = gui->screen->h - gui->logo->h - gui->mindistance;
@@ -1865,10 +1869,15 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 		char *cmd = NULL;
 		int ret;
 
+		if (gui->fullscreenmode) {
+			/* Disable fullscreen, so that mplayer can get it for playing the video. */
+			SDL_WM_ToggleFullScreen(gui->screen);
+		}
+
 		printf("Playing %s (%s)\n", elem->title, elem->videoid);
 
 		if (format == 0) {
-			ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, elem->videoid, elem->videoid, buffersize);
+			ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -fs -", elem->videoid, elem->videoid, elem->videoid, buffersize);
 		} else {
 			ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g -f %d --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -", elem->videoid, format, elem->videoid, elem->videoid, buffersize);
 		}
@@ -1885,6 +1894,10 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			}
 		} else {
 			cmd = NULL;
+		}
+		if (gui->fullscreenmode) {
+			/* Enable fullscreen again after video playback. */
+			SDL_WM_ToggleFullScreen(gui->screen);
 		}
 		return 1;
 	} else {
@@ -2056,16 +2069,16 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											 * to play the video.
 											 */
 											done = 1;
-											if (event.key.keysym.sym == SDLK_RETURN) {
-												/* Play current video only. */
-												retval = 1;
-											} else if (event.key.keysym.sym == SDLK_SPACE) {
-												/* Play playlist. */
-												retval = 2;
-											} else {
-												/* Play playlist backward. */
-												retval = 3;
-											}
+										}
+										if (event.key.keysym.sym == SDLK_RETURN) {
+											/* Play current video only. */
+											retval = 1;
+										} else if (event.key.keysym.sym == SDLK_SPACE) {
+											/* Play playlist. */
+											retval = 2;
+										} else {
+											/* Play playlist backward. */
+											retval = 3;
 										}
 									}
 								}
@@ -2281,6 +2294,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 						case SDLK_f:
 						case SDLK_F1:
+							gui->fullscreenmode ^= 1;
 							SDL_WM_ToggleFullScreen(gui->screen);
 							break;
 						case SDLK_d:
@@ -2827,13 +2841,13 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							 * to play the video.
 							 */
 							done = 1;
-							if (state == GUI_STATE_PLAY_VIDEO) {
-								retval = 2;
-							} else if (state == GUI_STATE_PLAY_PREV_VIDEO) {
-								retval = 3;
-							} else {
-								LOG_ERROR("Unsupport play state: %d %s.\n", state, get_state_text(state));
-							}
+						}
+						if (state == GUI_STATE_PLAY_VIDEO) {
+							retval = 2;
+						} else if (state == GUI_STATE_PLAY_PREV_VIDEO) {
+							retval = 3;
+						} else {
+							LOG_ERROR("Unsupport play state: %d %s.\n", state, get_state_text(state));
 						}
 					}
 				}
