@@ -14,13 +14,14 @@ if [ -e "/dev/ps2gs" ]; then
 fi
 
 if [ -x "$PROGRAM" ]; then
+	PLAYLISTID=""
 	while [ true ]; do
 		CFG="$(mktemp /tmp/youtubeplayerXXXXXXXXX.cfg)"
 		rm -f "$CFG"
 		# Use navigator, so that the user can tell which video to play:
 		echo "Starting navigator"
-		if [ "$CATPAGETOKEN" != "" ]; then
-			"$PROGRAM" -v "$CFG" -c "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR"
+		if [ "$PLAYLISTID" ]; then
+			"$PROGRAM" -v "$CFG" -p "$PLAYLISTID" -c "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR"
 		else
 			"$PROGRAM" -v "$CFG"
 		fi

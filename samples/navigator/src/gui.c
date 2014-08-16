@@ -1706,7 +1706,7 @@ static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 	return rv;
 }
 
-static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat)
+static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat, const char *selected_playlistid, const char *videopagetoken)
 {
 	int rv;
 	int channelNr;
@@ -1776,6 +1776,11 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat)
 							cat->channelNr = channelNr;
 							cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
 							cat->playlistid = strdup(playlistid);
+							/* Check if this playlist should be selected. */
+							if ((selected_playlistid != NULL) && (strcmp(selected_playlistid, playlistid) == 0)) {
+								/* Select same video page as selected before. */
+								cat->videopagetoken = videopagetoken;
+							}
 					 		title = jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i);
 							if (title != NULL) {
 								char *k = NULL;
@@ -1875,10 +1880,17 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			int vidnr = 0;
 
 			fprintf(fout, "VIDEOID=\"%s\"\n", elem->videoid);
+			if (cat->playlistid != NULL) {
+				fprintf(fout, "PLAYLISTID=\"%s\"\n", cat->playlistid);
+			} else {
+				fprintf(fout, "PLAYLISTID=\"\"\n");
+			}
 			if ((cat->next != NULL) && (cat->next != gui->categories) && (gui_get_prevPageToken(cat->next) != NULL)) {
 				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_prevPageToken(cat->next));
 			} else if ((cat->prev != NULL) && (cat != gui->categories) && (gui_get_nextPageToken(cat->prev) != NULL)) {
 				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_nextPageToken(cat->prev));
+			} else {
+				fprintf(fout, "CATPAGETOKEN=\"\"\n");
 			}
 
 			p = elem;
@@ -1937,7 +1949,7 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 	if (cat != NULL) {
 		gui_elem_t *p;
 
-		printf("Category is: %s\n", cat->title);
+		printf("Category is subnr %d: playlistid %s: %s\n", cat->subnr, cat->playlistid, cat->title);
 
 		p = cat->elem;
 		while (p != NULL) {
@@ -1957,7 +1969,7 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 /**
  * Main loop for GUI.
  */
-void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
+void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
 {
 	int done;
 	SDL_Event event;
@@ -2398,7 +2410,7 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 				break;
 
 			case GUI_STATE_GET_MY_CHANNELS:
-				rv = update_my_channels(gui, gui->cur_cat);
+				rv = update_my_channels(gui, gui->cur_cat, playlistid, videopagetoken);
 				if (rv != JT_OK) {
 					state = GUI_STATE_ERROR;
 					wakeupcount = DEFAULT_SLEEP;
@@ -2485,7 +2497,8 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 							if (videoid != NULL) {
 								cat = gui->categories;
 								while(cat != NULL) {
-									if ((cat->nextPageState == ((enum gui_state) getstate)) && (cat->subnr == catnr)) {
+									if ((cat->nextPageState == ((enum gui_state) getstate)) && (cat->playlistid != NULL)
+										&& (playlistid != NULL) && (strcmp(cat->playlistid, playlistid) == 0) && (cat->subnr == catnr)) {
 										/* Select current category which was specified by the parameter catnr. */
 										gui->current = cat;
 										break;
@@ -2495,7 +2508,8 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 										break;
 									}
 								}
-								if ((cat != NULL) && (cat->nextPageState == ((enum gui_state) getstate)) && (cat->subnr == catnr)) {
+								if ((cat != NULL) && (cat->nextPageState == ((enum gui_state) getstate)) && (cat->playlistid != NULL)
+									&& (playlistid != NULL) && (strcmp(cat->playlistid, playlistid) == 0) && (cat->subnr == catnr)) {
 									/* Try to find video selected by parameter videoid. */
 									gui_elem_t *elem;
 
