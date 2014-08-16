@@ -89,6 +89,7 @@ enum gui_state {
 	GUI_STATE_GET_CHANNELS,
 	GUI_STATE_GET_PREV_CHANNELS,
 	GUI_STATE_RUNNING,
+	GUI_STATE_PLAY_VIDEO,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -114,6 +115,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_GET_MY_CHANNELS)
 		CASESTATE(GUI_STATE_GET_MY_PREV_CHANNELS)
 		CASESTATE(GUI_STATE_RUNNING)
+		CASESTATE(GUI_STATE_PLAY_VIDEO)
 	}
 	return "unknown";
 }
@@ -623,7 +625,12 @@ gui_t *gui_alloc(void)
 #else
 	gui->at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, 0);
 #endif
-
+	free(tokenfile);
+	tokenfile = NULL;
+	free(refreshtokenfile);
+	refreshtokenfile = NULL;
+	free(secretfile);
+	secretfile = NULL;
 
 	if (gui->at == NULL) {
 		LOG_ERROR("Out of memory\n");
@@ -1665,6 +1672,7 @@ static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 
 				if (cat != NULL) {
 					char *title;
+					const char *channelid;
 
 					last = cat;
 
@@ -1676,7 +1684,15 @@ static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 						cat->prevPageState = GUI_STATE_GET_PREV_CHANNELS;
 					}
 					cat->channelNr = channelNr;
-					cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
+					channelid = jt_json_get_string_by_path(gui->at, "/items[%d]/id", i);
+
+					if (channelid != NULL) {
+						if (cat->channelid != NULL) {
+							free(cat->channelid);
+							cat->channelid = NULL;
+						}
+						cat->channelid = strdup(channelid);
+					}
 					cat->playlistid = strdup(playlistid);
 			 		title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
 					if (title != NULL) {
@@ -1969,7 +1985,7 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 /**
  * Main loop for GUI.
  */
-void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
+int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
 {
 	int done;
 	SDL_Event event;
@@ -2011,9 +2027,11 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playl
 		/* Check for events */
 		while(SDL_PollEvent(&event))
 		{
+			/* Disable any automatic when a key is pressed. */
 			switch(event.type)
 			{
 				case SDL_KEYDOWN:
+					retval = 0;
 					/* Key pressed on keyboard. */
 					switch(event.key.keysym.sym) {
 						case SDLK_SPACE:
@@ -2029,16 +2047,17 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playl
 									if (elem->videoid != NULL) {
 										int ret = 1;
 
-										if (event.key.keysym.sym == SDLK_RETURN) {
-											ret = playVideo(gui, videofile, cat, elem, 5, 1024);
-										} else {
-											ret = playVideo(gui, videofile, cat, elem, 0, 4096);
-										}
+										ret = playVideo(gui, videofile, cat, elem, 0, 4096);
 										if ((videofile != NULL) && (ret == 0)) {
 											/* Terminate program, another program needs to use the videofile
 											 * to play the video.
 											 */
 											done = 1;
+											if (event.key.keysym.sym == SDLK_RETURN) {
+												retval = 1;
+											} else {
+												retval = 2;
+											}
 										}
 									}
 								}
@@ -2050,6 +2069,7 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playl
 						case SDLK_q:
 							/* Quit */
 							done = 1;
+							retval = 0;
 							break;
 
 						case SDLK_LEFT:
@@ -2268,6 +2288,10 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playl
 					break;
 
 			}
+		}
+
+		if (done) {
+			break;
 		}
 		if (state != prevstate) {
 			//fprintf(stderr, "Enter new state %d %s (triggered by user).\n", state, get_state_text(state));
@@ -2716,7 +2740,58 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playl
 							gui->cur_cat = cat;
 						}
 					}
+					cat = gui->current;
+					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && (retval == 2)) {
+						if ((cat->current != NULL) && (cat->elem != NULL) && (cat->current->next == cat->elem)) {
+							gui_elem_t *last;
+
+							last = cat->elem->prev;
+
+							if ((last->nextPageToken != NULL) && (curstate == GUI_STATE_RUNNING)) {
+								afterplayliststate = GUI_STATE_PLAY_VIDEO;
+								state = GUI_STATE_GET_PLAYLIST;
+								gui->cur_cat = cat;
+							}
+						} else {
+							gui_elem_t *elem;
+
+							elem = cat->current;
+							if (elem != NULL) {
+								gui_inc_elem(gui);
+							}
+							if (elem != cat->current) {
+								wakeupcount = DEFAULT_SLEEP;
+								state = GUI_STATE_PLAY_VIDEO;
+							}
+						}
+						retval = 0;
+					}
 				}
+				break;
+
+			case GUI_STATE_PLAY_VIDEO:
+				if (gui->current != NULL) {
+					gui_cat_t *cat;
+					gui_elem_t *elem;
+
+					cat = gui->current;
+					elem = cat->current;
+
+					if (elem != NULL) {
+						int ret;
+
+						/* Play next video. */
+						ret = playVideo(gui, videofile, cat, elem, 0, 4096);
+						if ((videofile != NULL) && (ret == 0)) {
+							/* Terminate program, another program needs to use the videofile
+							 * to play the video.
+							 */
+							done = 1;
+							retval = 2;
+						}
+					}
+				}
+				state = GUI_STATE_RUNNING;
 				break;
 
 			case GUI_STATE_ERROR:  {
@@ -2802,4 +2877,5 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playl
 		/* Paint GUI elements. */
 		gui_paint(gui);
 	}
+	return retval;
 }

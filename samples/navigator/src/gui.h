@@ -13,6 +13,6 @@ typedef struct gui_cat_s gui_cat_t;
  */
 gui_t *gui_alloc(void);
 void gui_free(gui_t *gui);
-void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr);
+int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr);
 
 #endif
