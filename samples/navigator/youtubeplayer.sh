@@ -20,7 +20,7 @@ if [ -x "$PROGRAM" ]; then
 		# Use navigator, so that the user can tell which video to play:
 		echo "Starting navigator"
 		if [ "$CATPAGETOKEN" != "" ]; then
-			"$PROGRAM" -v "$CFG" -c "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -m "$STATE" -t "$VIDPAGETOKEN"
+			"$PROGRAM" -v "$CFG" -c "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR"
 		else
 			"$PROGRAM" -v "$CFG"
 		fi

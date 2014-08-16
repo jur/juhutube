@@ -196,6 +196,8 @@ struct gui_cat_s {
 	enum gui_state prevPageState;
 	/** First page to load. */
 	const char *videopagetoken;
+	/** Videonumber of the first video of the page specified by videopagetoken. */
+	int vidnr;
 };
 
 struct gui_s {
@@ -500,6 +502,7 @@ static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 
 		/* not allocated */
 		cat->videopagetoken = NULL;
+		cat->vidnr = 0;
 
 		free(cat);
 		cat = NULL;
@@ -983,6 +986,7 @@ static void gui_paint(gui_t *gui)
 	SDL_UpdateRect(gui->screen, 0, 0, gui->screen->w, gui->screen->h);
 }
 
+#if 0
 /**
  * Print text to an SDL surface.
  *
@@ -1013,6 +1017,7 @@ static SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *forma
 
 	return TTF_RenderUTF8_Solid(gui->font, text, clrFg);
 }
+#endif
 
 /** Free large thumbnails to get more memory for new thumbnails. */
 static void gui_cat_large_free(gui_cat_t *cat)
@@ -1345,25 +1350,26 @@ static int update_playlist(gui_t *gui, gui_cat_t *cat, int reverse)
 			last = NULL;
 
 			pageToken = first->prevPageToken;
+			subnr = first->subnr;
 		} else {
 			last = cat->elem->prev;
 			pageToken = last->nextPageToken;
 			subnr = last->subnr;
-			subnr--;
+			subnr++;
 		}
 		if (pageToken == NULL) {
 			LOG_ERROR("%s: Bad pageToken in cat %s.\n", __FUNCTION__, cat->title);
 			return JT_ERROR;
 		}
-		subnr++;
 	} else {
 		last = NULL;
 
 		/* This is a new list start with number 0. */
-		subnr = 0;
 		if (cat->videopagetoken != NULL) {
 			pageToken = cat->videopagetoken;
+			subnr = cat->vidnr;
 		} else {
+			subnr = 0;
 			pageToken = "";
 		}
 	}
@@ -1513,7 +1519,7 @@ static int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 	return rv;
 }
 
-static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *catpagetoken, int catnr, const char *videopagetoken)
+static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *catpagetoken, int catnr, const char *videopagetoken, int vidnr)
 {
 	int rv;
 	int subnr;
@@ -1583,6 +1589,7 @@ static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse
 					cat->subnr = subnr;
 			 		cat->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
 					cat->videopagetoken = videopagetoken;
+					cat->vidnr = vidnr;
 					if (i == 0) {
 						cat->subscriptionPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
 					}
@@ -1865,6 +1872,7 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 		fout = fopen(videofile, "wb");
 		if (fout != NULL) {
 			gui_elem_t *p;
+			int vidnr = 0;
 
 			fprintf(fout, "VIDEOID=\"%s\"\n", elem->videoid);
 			if ((cat->next != NULL) && (cat->next != gui->categories) && (gui_get_prevPageToken(cat->next) != NULL)) {
@@ -1872,31 +1880,45 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			} else if ((cat->prev != NULL) && (cat != gui->categories) && (gui_get_nextPageToken(cat->prev) != NULL)) {
 				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_nextPageToken(cat->prev));
 			}
-			p = elem->next;
+
+			p = elem;
 			while (p != NULL) {
-				if ((p->prevPageToken != NULL) || (p->next == cat->elem)) {
+				if ((p->nextPageToken != NULL) || (p->prev == cat->elem->prev)) {
 					break;
 				}
-				p = p->next;
+				p = p->prev;
 			}
-			if ((p != NULL) && (p->prevPageToken != NULL)) {
-				fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->prevPageToken);
+			if ((p != NULL) && (p != elem) && (p->nextPageToken != NULL)) {
+				fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->nextPageToken);
+				vidnr = p->subnr + 1;
 			} else {
-				p = elem->prev;
+				p = elem;
 				while (p != NULL) {
-					if ((p->nextPageToken != NULL) || (p->prev == cat->elem->prev)) {
+					if ((p->prevPageToken != NULL) || (p->next == cat->elem)) {
 						break;
 					}
-					p = p->prev;
+					p = p->next;
 				}
-				if ((p != NULL) && (p->nextPageToken != NULL)) {
-					fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->nextPageToken);
+				if ((p != NULL) && (p != elem) && (p->prevPageToken != NULL)) {
+					fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->prevPageToken);
+					/* Found prevPageToken, but no nextPageToken. This means that the first
+					 * video contains the vidnr when prevPageToken is used.
+					 */
+					vidnr = cat->elem->subnr;
 				} else if (cat->videopagetoken != NULL) {
+					/* No further playlist items loaded after restart, must be the same page token and vidnr. */
 					fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", cat->videopagetoken);
+					vidnr = cat->vidnr;
+				} else {
+					/* Must be the first page: */
+					fprintf(fout, "VIDPAGETOKEN=\"\"\n");
+					/* First video has number 0. */
+					vidnr = 0;
 				}
 			}
 			fprintf(fout, "CATNR=\"%d\"\n", cat->subnr);
-			fprintf(fout, "VIDNR=\"%d\"\n", elem->subnr);
+			/* Number of the first video when using VIDPAGETOKEN. */
+			fprintf(fout, "VIDNR=\"%d\"\n", vidnr);
 			fprintf(fout, "STATE=\"%d\"\n", cat->nextPageState);
 			fprintf(fout, "VIDEOTITLE='%s'\n", elem->title);
 			fclose(fout);
@@ -1908,10 +1930,34 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 	}
 }
 
+void print_debug_cat(gui_t *gui, gui_cat_t *cat)
+{
+	(void) gui;
+
+	if (cat != NULL) {
+		gui_elem_t *p;
+
+		printf("Category is: %s\n", cat->title);
+
+		p = cat->elem;
+		while (p != NULL) {
+			printf("%c subnr %d p->prevPageToken %s title %s\n", (p == cat->current) ? '+' : '-', p->subnr, p->prevPageToken, p->title);
+			printf("%c subnr %d p->nextPageToken %s title %s\n", (p == cat->current) ? '+' : '-', p->subnr, p->nextPageToken, p->title);
+			if (p->next == cat->elem) {
+				break;
+			}
+			p = p->next;
+		}
+	} else {
+		printf("Category is NULL.\n");
+	}
+}
+
+
 /**
  * Main loop for GUI.
  */
-void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken)
+void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
 {
 	int done;
 	SDL_Event event;
@@ -2191,6 +2237,14 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 									}
 								}
 							}
+							break;
+
+						case SDLK_f:
+						case SDLK_F1:
+							SDL_WM_ToggleFullScreen(gui->screen);
+							break;
+						case SDLK_d:
+							print_debug_cat(gui, gui->current);
 							break;
 	
 						default:
@@ -2515,7 +2569,7 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 				if (((enum gui_state) getstate) != state) {
 					catpagetoken = NULL;
 				}
-				rv = update_subscriptions(gui, gui->cur_cat, 0, catpagetoken, catnr, videopagetoken);
+				rv = update_subscriptions(gui, gui->cur_cat, 0, catpagetoken, catnr, videopagetoken, vidnr);
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
@@ -2532,7 +2586,7 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 			}
 
 			case GUI_STATE_GET_PREV_SUBSCRIPTIONS: {
-				rv = update_subscriptions(gui, gui->cur_cat, 1, NULL, 0, NULL);
+				rv = update_subscriptions(gui, gui->cur_cat, 1, NULL, 0, NULL, 0);
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
@@ -2715,6 +2769,20 @@ void gui_loop(gui_t *gui, int getstate, const char *videofile, const char *catpa
 				state = GUI_RESET_STATE;
 				break;
 			}
+
+			case GUI_STATE_GET_MY_PREV_CHANNELS:
+				gui->statusmsg = buf_printf(gui->statusmsg, "GUI_STATE_GET_MY_PREV_CHANNELS shouldn't be entered.");
+				/* Just go on: */
+				wakeupcount = DEFAULT_SLEEP;
+				state = GUI_STATE_RUNNING;
+				break;
+
+			case GUI_STATE_GET_PREV_CHANNELS:
+				gui->statusmsg = buf_printf(gui->statusmsg, "GUI_STATE_GET_PREV_CHANNELS shouldn't be entered.");
+				/* Just go on: */
+				wakeupcount = DEFAULT_SLEEP;
+				state = GUI_STATE_RUNNING;
+				break;
 		}
 
 		/* Paint GUI elements. */

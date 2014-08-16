@@ -38,13 +38,14 @@ int main(int argc, char *argv[])
 	const char *videofile = NULL;
 	const char *catpagetoken = NULL;
 	int catnr = 0;
+	int vidnr = 0;
 	const char *videoid = NULL;
 	const char *videopagetoken = NULL;
 	int state = 0;
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:sv:c:i:n:m:t:")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:c:i:n:m:t:u:")) != -1) {
 		switch(c) {
 			case 'l':
 				/* Write log messages to a file. */
@@ -81,6 +82,10 @@ int main(int argc, char *argv[])
 				videopagetoken = optarg;
 				break;
 
+			case 'u':
+				vidnr = strtol(optarg, NULL, 0);
+				break;
+
 			default:
 				return 1;
 				break;
@@ -107,7 +112,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* Call the GUI main processing loop. */
-	gui_loop(gui, state, videofile, catpagetoken, videoid, catnr, videopagetoken);
+	gui_loop(gui, state, videofile, catpagetoken, videoid, catnr, videopagetoken, vidnr);
 
 	gui_free(gui);
 	gui = NULL;
