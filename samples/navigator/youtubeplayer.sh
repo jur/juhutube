@@ -15,20 +15,21 @@ fi
 
 if [ -x "$PROGRAM" ]; then
 	while [ true ]; do
-		rm -f videocfg.cfg
+		CFG="$(mktemp /tmp/youtubeplayerXXXXXXXXX.cfg)"
+		rm -f "$CFG"
 		# Use navigator, so that the user can tell which video to play:
 		echo "Starting navigator"
 		if [ "$CATPAGETOKEN" != "" ]; then
-			"$PROGRAM" -v videocfg.cfg -c "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -m "$STATE" -t "$VIDPAGETOKEN"
+			"$PROGRAM" -v "$CFG" -c "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -m "$STATE" -t "$VIDPAGETOKEN"
 		else
-			"$PROGRAM" -v videocfg.cfg
+			"$PROGRAM" -v "$CFG"
 		fi
 
-		if [ -e videocfg.cfg ]; then
+		if [ -e "$CFG" ]; then
 			# The user selected a video which should be played, so
 			# get the information about it and play it:
 			VIDPAGETOKEN=""
-			source videocfg.cfg
+			source "$CFG"
 			echo "Selected video $VIDEOTITLE"
 			echo "Getting URL..."
 			URL="$(youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt http://www.youtube.com/watch?v=$VIDEOID)"
