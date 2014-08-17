@@ -41,7 +41,7 @@ if [ -x "$PROGRAM" ]; then
 			echo "Starting player..."
 			if [ "$DISPLAY" = "" ]; then
 				# No X11 use SDL:
-				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | mplayer -vo sdl -ao sdl -cache 1024 -framedrop -
+				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -
 			else
 				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | mplayer -cache 1024 -
 			fi
