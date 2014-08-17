@@ -51,4 +51,5 @@ To playback a video press the RETURN key. When you want to playback a playlist
 starting with the current selected video, press SPACE. If you want to play the
 videos in the reverse order press the R key.
 
-To get all playlists of a channel press the P key.
+To get all playlists of a channel press the P key. Press P again to return from
+the playlist.

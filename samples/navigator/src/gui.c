@@ -255,6 +255,9 @@ struct gui_s {
 
 	/** True if in fullscreen mode. */
 	int fullscreenmode;
+
+	/** Used to return from channel playlist. */
+	gui_cat_t *prev_cat;
 };
 
 /**
@@ -424,7 +427,7 @@ static void gui_elem_free(gui_elem_t *elem)
 
 static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 {
-	if (cat != NULL) {
+	if ((cat != NULL) && (gui->prev_cat != cat)) {
 		gui_elem_t *elem;
 		gui_elem_t *next;
 
@@ -666,6 +669,7 @@ void gui_free(gui_t *gui)
 		/* Was allocated as part of the list gui->categories. */
 		gui->current = NULL;
 		gui->cur_cat = NULL;
+		gui->prev_cat = NULL;
 
 		cat = gui->categories;
 		gui->categories = NULL;
@@ -920,6 +924,12 @@ static void gui_paint_cat_view(gui_t *gui)
 					break;
 				}
 
+				if (gui->prev_cat != NULL) {
+					if ((cat->next != NULL) && (cat->nextPageState != cat->next->nextPageState)) {
+						/* Don't show anything outside selected playlist. */
+						break;
+					}
+				}
 				current = current->next;
 				if (current == cat->elem) {
 					/* Don't draw stuff after the last video. */
@@ -930,6 +940,7 @@ static void gui_paint_cat_view(gui_t *gui)
 					/* Stop when it repeats. */
 					break;
 				}
+
 			}
 		}
 		rcDest.y += maxHeight + BORDER_Y;
@@ -1181,7 +1192,7 @@ static char *gui_get_nextPageToken(gui_cat_t *cat)
 }
 
 /** Select next category in list and free "older" stuff. */
-static void gui_inc_cat(gui_t *gui)
+static int gui_inc_cat(gui_t *gui)
 {
 	gui_cat_t *cat;
 
@@ -1190,6 +1201,10 @@ static void gui_inc_cat(gui_t *gui)
 	if (cat != NULL) {
 		int n;
 
+		if ((gui->prev_cat != NULL) && (cat->next != NULL) && (cat->nextPageState != cat->next->nextPageState)) {
+			/* Don't go outside selected playlist. */
+			return 1;
+		}
 		gui->current = cat->next;
 
 		/* Free thumbnail which are currently not shown. */
@@ -1218,20 +1233,32 @@ static void gui_inc_cat(gui_t *gui)
 					}
 				}
 			}
+			if (gui->prev_cat != NULL) {
+				/* Playlist was selected. Don't delete stuff outside the playlist. */
+				if ((cat->prev != NULL) && (cat->prevPageState != cat->prev->prevPageState)) {
+					break;
+				}
+			}
 			cat = cat->prev;
 			n++;
 		}
 	}
+	return 0;
 }
 
 /** Select previous category in list and free "older" stuff. */
-static void gui_dec_cat(gui_t *gui)
+static int gui_dec_cat(gui_t *gui)
 {
 	gui_cat_t *cat;
 
 	cat = gui->current;
 	if (cat != NULL) {
 		int n;
+
+		if ((gui->prev_cat != NULL) && (cat->prev != NULL) && (cat->prevPageState != cat->prev->prevPageState)) {
+			/* Don't go outside selected playlist. */
+			return 1;
+		}
 		gui->current = cat->prev;
 
 		/* Free thumbnail which are currently not shown. */
@@ -1261,10 +1288,17 @@ static void gui_dec_cat(gui_t *gui)
 				}
 				break;
 			}
+			if (gui->prev_cat != NULL) {
+				/* Playlist was selected. Don't delete stuff outside the playlist. */
+				if ((cat->next != NULL) && (cat->nextPageState != cat->next->nextPageState)) {
+					break;
+				}
+			}
 			cat = cat->next;
 			n++;
 		}
 	}
+	return 0;
 }
 
 /** Select next element in list. */
@@ -2271,8 +2305,34 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->statusmsg == NULL) {
 									if (gui->current != NULL) {
-										gui->cur_cat = gui->current;
-										state = GUI_STATE_GET_CHANNEL_PLAYLIST;
+										if (gui->prev_cat != NULL) {
+											gui_cat_t *cat;
+											enum gui_state nextPageState;
+
+											nextPageState = gui->current->nextPageState;
+
+											gui->current = gui->prev_cat;
+											gui->prev_cat = NULL;
+
+											/* Delete playlist when returning. */
+											cat = gui->categories;
+											while (cat != NULL) {
+												gui_cat_t *next;
+												next = cat->next;
+												if (cat->nextPageState == nextPageState) {
+													gui_cat_free(gui, cat);
+													cat = NULL;
+												}
+												cat = next;
+												if ((gui->categories == NULL) || (cat == gui->categories)) {
+													break;
+												}
+											}
+										} else {
+											gui->cur_cat = gui->current;
+											gui->prev_cat = gui->current;
+											state = GUI_STATE_GET_CHANNEL_PLAYLIST;
+										}
 									}
 								}
 							}
@@ -2459,7 +2519,9 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 									cat = gui->current;
 									while (!((cat != NULL) && (cat->prev != NULL) && (cat->prev == gui->categories->prev))) {
-										gui_dec_cat(gui);
+										if (gui_dec_cat(gui)) {
+											break;
+										}
 										cat = gui->current;
 									}
 								}
@@ -2473,7 +2535,9 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 									cat = gui->current;
 									while (!((cat != NULL) && (cat->next != NULL) && (cat->next == gui->categories))) {
-										gui_inc_cat(gui);
+										if (gui_inc_cat(gui)) {
+											break;
+										}
 										cat = gui->current;
 									}
 									if (gui_get_nextPageToken(cat) != NULL) {
@@ -2900,6 +2964,9 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											case GUI_STATE_GET_CHANNEL_PLAYLIST:
 												/* Load selected category (was selected before restart). */
 												afterplayliststate = getstate;
+												/* Use current to return from playlist. */
+												/* TBD: Load correct category. */
+												gui->prev_cat = gui->current;
 												break;
 											default:
 												afterplayliststate = GUI_STATE_RUNNING;
@@ -2960,6 +3027,12 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					nextstate = GUI_STATE_RUNNING;
 					state = GUI_STATE_ERROR;
 					wakeupcount = DEFAULT_SLEEP;
+				}
+				if (gui->prev_cat != NULL) {
+					if ((gui->current == NULL) || (gui->current->nextPageState != GUI_STATE_GET_CHANNEL_PLAYLIST)) {
+						/* Error while loading playlist, no item selected from the playlist, restore normal state. */
+						gui->prev_cat = NULL;
+					}
 				}
 				gui->cur_cat = NULL;
 				break;
