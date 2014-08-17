@@ -3147,7 +3147,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 								state = GUI_STATE_PLAY_VIDEO;
 							}
 						}
-						retval = 0;
 					}
 
 					/* Play previous video in playlist. */
@@ -3176,14 +3175,13 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 								state = GUI_STATE_PLAY_PREV_VIDEO;
 							}
 						}
-						retval = 0;
 					}
 				}
 				break;
 
 			case GUI_STATE_PLAY_VIDEO:
 			case GUI_STATE_PLAY_PREV_VIDEO:
-				if (gui->current != NULL) {
+				if ((gui->current != NULL) && (retval != 0)) {
 					gui_cat_t *cat;
 					gui_elem_t *elem;
 
