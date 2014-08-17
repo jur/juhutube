@@ -16,8 +16,9 @@ CPPFLAGS += -g
 all: $(LIBJT)
 
 install: all
-	install -D include/libjt.h "$(PREFIX)/include/"
-	install -D $(LIBJT) "$(PREFIX)/lib/"
+	mkdir -p "$(CHROOTDIR)$(PREFIX)/include/"
+	install -D include/libjt.h "$(CHROOTDIR)$(PREFIX)/include/"
+	install -D $(LIBJT) "$(CHROOTDIR)$(PREFIX)/lib/"
 
 $(LIBJT): $(OBJS)
 	@mkdir -p $(LIBJTDIR)

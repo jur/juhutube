@@ -1,5 +1,5 @@
-#!/bin/bash
-DEFAULTPROGRAM="/usr/local/bin/ytnavigator"
+#!/bin/ash
+DEFAULTPROGRAM="/usr/bin/ytnavigator"
 PROGRAM="$1"
 if [ -z "$PROGRAM" ]; then
 	PROGRAM="$DEFAULTPROGRAM"
@@ -16,7 +16,7 @@ fi
 if [ -x "$PROGRAM" ]; then
 	RETVAL=""
 	while [ true ]; do
-		CFG="$(mktemp /tmp/youtubeplayerXXXXXXXXX.cfg)"
+		CFG="$(mktemp -t ytplayXXXXXXXXX)"
 		rm -f "$CFG"
 		# Use navigator, so that the user can tell which video to play:
 		echo "Starting navigator"

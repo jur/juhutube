@@ -2045,7 +2045,7 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			/* Enable fullscreen again after video playback. */
 			SDL_WM_ToggleFullScreen(gui->screen);
 		}
-		return 1;
+		return 0;
 	} else {
 		FILE *fout;
 
@@ -2087,6 +2087,7 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 				vidnr = p->subnr + 1;
 			} else {
 				p = elem;
+
 				while (p != NULL) {
 					if ((p->prevPageToken != NULL) || (p->next == cat->elem)) {
 						break;
@@ -2114,7 +2115,29 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			/* Number of the first video when using VIDPAGETOKEN. */
 			fprintf(fout, "VIDNR=\"%d\"\n", vidnr);
 			fprintf(fout, "STATE=\"%d\"\n", cat->nextPageState);
-			fprintf(fout, "VIDEOTITLE='%s'\n", elem->title);
+			if (elem->title != NULL) {
+				char *title;
+
+				title = strdup(elem->title);
+
+				if (title != NULL) {
+					int i;
+
+					i = 0;
+					while(title[i] != 0) {
+						if (title[i] == '\'') {
+							/* Remove stuff which can cause quoting problems in shell. */
+							title[i] = '`';
+						}
+						i++;
+					}
+					fprintf(fout, "VIDEOTITLE='%s'\n", title);
+				} else {
+					fprintf(fout, "VIDEOTITLE=''\n");
+				}
+			} else {
+				fprintf(fout, "VIDEOTITLE=''\n");
+			}
 			fclose(fout);
 			return 0;
 		} else {
@@ -2224,15 +2247,19 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											 */
 											done = 1;
 										}
-										if (event.key.keysym.sym == SDLK_RETURN) {
-											/* Play current video only. */
-											retval = 1;
-										} else if (event.key.keysym.sym == SDLK_SPACE) {
-											/* Play playlist. */
-											retval = 2;
+										if (ret == 0) {
+											if (event.key.keysym.sym == SDLK_RETURN) {
+												/* Play current video only. */
+												retval = 1;
+											} else if (event.key.keysym.sym == SDLK_SPACE) {
+												/* Play playlist. */
+												retval = 2;
+											} else {
+												/* Play playlist backward. */
+												retval = 3;
+											}
 										} else {
-											/* Play playlist backward. */
-											retval = 3;
+											retval = 0;
 										}
 									}
 								}
@@ -3048,12 +3075,16 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							 */
 							done = 1;
 						}
-						if (state == GUI_STATE_PLAY_VIDEO) {
-							retval = 2;
-						} else if (state == GUI_STATE_PLAY_PREV_VIDEO) {
-							retval = 3;
+						if (ret == 0) {
+							if (state == GUI_STATE_PLAY_VIDEO) {
+								retval = 2;
+							} else if (state == GUI_STATE_PLAY_PREV_VIDEO) {
+								retval = 3;
+							} else {
+								LOG_ERROR("Unsupport play state: %d %s.\n", state, get_state_text(state));
+							}
 						} else {
-							LOG_ERROR("Unsupport play state: %d %s.\n", state, get_state_text(state));
+							retval = 0;
 						}
 					}
 				}

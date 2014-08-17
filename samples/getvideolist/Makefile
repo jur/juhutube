@@ -27,7 +27,7 @@ endif
 all: $(PROGRAM)
 
 install: all
-	install -D $(PROGRAM) "$(PREFIX)/bin/"
+	install -D $(PROGRAM) "$(CHROOTDIR)$(PREFIX)/bin/"
 
 $(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
 	@mkdir -p $(BINDIR)

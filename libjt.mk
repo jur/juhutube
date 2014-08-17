@@ -37,4 +37,5 @@ CPPFLAGS += -DJSONC=1
 endif
 LDLIBS += -lssl -lcrypto -ldl -lz
 
+CHROOTDIR =
 PREFIX = /usr/local

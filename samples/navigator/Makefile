@@ -26,15 +26,15 @@ BFDARCH = $(shell LANG=C $(OBJDUMP) --help | grep -e "supported architectures:" 
 ifeq ($(BUILDROOT_MACHINE),)
 test: all
 	mkdir -p $(TESTDIR)
-	(cd $(TESTDIR) && ../youtubeplayer.sh ../$(PROGRAM))
+	(cd $(TESTDIR) && bash -x ../youtubeplayer.sh ../$(PROGRAM))
 endif
 
 all: $(PROGRAM)
 
 install: all
-	install -D $(PROGRAM) "$(PREFIX)/bin/"
-	sed -i youtubeplayer.sh -e "s-DEFAULTPROGRAM=.*\$$-DEFAULTPROGRAM=\"$(PREFIX)/bin/ytnavigator\"-g"
-	install -D youtubeplayer.sh "$(PREFIX)/bin/"
+	install -D $(PROGRAM) "$(CHROOTDIR)$(PREFIX)/bin/"
+	sed -i youtubeplayer.sh -e "s#DEFAULTPROGRAM=.*\$$#DEFAULTPROGRAM=\"$(PREFIX)/bin/ytnavigator\"#g"
+	install -D youtubeplayer.sh "$(CHROOTDIR)$(PREFIX)/bin/"
 
 $(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
 	@mkdir -p $(BINDIR)
