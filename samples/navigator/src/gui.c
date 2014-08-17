@@ -2896,8 +2896,15 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 								} else {
 									state = GUI_STATE_GET_PLAYLIST;
 									if (catpagetoken != NULL) {
-										/* Load selected category (was selected before restart). */
-										afterplayliststate = getstate;
+										switch(getstate) {
+											case GUI_STATE_GET_CHANNEL_PLAYLIST:
+												/* Load selected category (was selected before restart). */
+												afterplayliststate = getstate;
+												break;
+											default:
+												afterplayliststate = GUI_STATE_RUNNING;
+												break;
+										}
 									} else {
 										afterplayliststate = GUI_STATE_RUNNING;
 									}
