@@ -165,6 +165,8 @@ struct gui_elem_s {
 	int textScrollDir;
 	/** Counter to delay text scrolling. */
 	int textScrollCounter;
+	/** YouTube channel ID. */
+	char *channelid;
 };
 
 /** The structure describes a category (e.g. favorites or subscribed channel). */
@@ -419,6 +421,10 @@ static void gui_elem_free(gui_elem_t *elem)
 		if (elem->prevPageToken != NULL) {
 			free(elem->prevPageToken);
 			elem->prevPageToken = NULL;
+		}
+		if (elem->channelid != NULL) {
+			free(elem->channelid);
+			elem->channelid = NULL;
 		}
 		free(elem);
 		elem = NULL;
@@ -924,12 +930,6 @@ static void gui_paint_cat_view(gui_t *gui)
 					break;
 				}
 
-				if (gui->prev_cat != NULL) {
-					if ((cat->next != NULL) && (cat->nextPageState != cat->next->nextPageState)) {
-						/* Don't show anything outside selected playlist. */
-						break;
-					}
-				}
 				current = current->next;
 				if (current == cat->elem) {
 					/* Don't draw stuff after the last video. */
@@ -946,6 +946,12 @@ static void gui_paint_cat_view(gui_t *gui)
 		rcDest.y += maxHeight + BORDER_Y;
 		if (rcDest.y >= gui->screen->h) {
 			break;
+		}
+		if (gui->prev_cat != NULL) {
+			if ((cat->next != NULL) && (cat->nextPageState != cat->next->nextPageState)) {
+				/* Don't show anything outside selected playlist. */
+				break;
+			}
 		}
 		cat = cat->next;
 		if (cat == gui->categories) {
@@ -1498,6 +1504,23 @@ static int update_playlist(gui_t *gui, gui_cat_t *cat, int reverse)
 	return rv;
 }
 
+/** Get channelid where the selected video comes from. */
+static int update_channelid_of_video(gui_t *gui, gui_elem_t *selected_video)
+{
+	int rv = JT_ERROR;
+
+	if (selected_video != NULL) {
+		if ((selected_video->videoid != NULL) && (selected_video->channelid == NULL)) {
+			rv = jt_get_video(gui->at, selected_video->videoid);
+			if (rv == JT_OK) {
+				selected_video->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/channelId", 0));
+				jt_free_transfer(gui->at);
+			}
+		}
+	}
+	return rv;
+}
+
 
 static int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 {
@@ -1941,6 +1964,11 @@ static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int rev
 	} else {
 		if (selected_cat != NULL) {
 			channelid = selected_cat->channelid;
+			if (selected_cat->current != NULL) {
+				if (selected_cat->current->channelid != NULL) {
+					channelid = selected_cat->current->channelid;
+				}
+			}
 		}
 	}
 	rv = jt_get_channel_playlists(gui->at, channelid, pageToken);
@@ -2188,15 +2216,25 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 	if (cat != NULL) {
 		gui_elem_t *p;
 
-		printf("Category is subnr %d: playlistid %s: nextPage %s:%s prevPage %s:%s: %s\n",
-			cat->subnr, cat->playlistid,
+		printf("Category is subnr %d: channelid %s: playlistid %s: nextPage %s:%s prevPage %s:%s: %s\n",
+			cat->subnr,
+			cat->channelid,
+			cat->playlistid,
 			get_state_text(cat->nextPageState), gui_get_nextPageToken(cat),
 			get_state_text(cat->prevPageState), gui_get_prevPageToken(cat), cat->title);
 
 		p = cat->elem;
 		while (p != NULL) {
-			printf("%c subnr %d p->prevPageToken %s title %s\n", (p == cat->current) ? '+' : '-', p->subnr, p->prevPageToken, p->title);
-			printf("%c subnr %d p->nextPageToken %s title %s\n", (p == cat->current) ? '+' : '-', p->subnr, p->nextPageToken, p->title);
+			printf("%c subnr %d channelid %s videoid %s p->prevPageToken %s title %s\n",
+				(p == cat->current) ? '+' : '-', p->subnr,
+				p->channelid,
+				p->videoid,
+				p->prevPageToken, p->title);
+			printf("%c subnr %d channelid %s videoid %s p->nextPageToken %s title %s\n",
+				(p == cat->current) ? '+' : '-', p->subnr,
+				p->channelid,
+				p->videoid,
+				p->nextPageToken, p->title);
 			if (p->next == cat->elem) {
 				break;
 			}
@@ -2332,6 +2370,14 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											gui->cur_cat = gui->current;
 											gui->prev_cat = gui->current;
 											state = GUI_STATE_GET_CHANNEL_PLAYLIST;
+											switch (gui->cur_cat->nextPageState) {
+												case GUI_STATE_GET_MY_CHANNELS:
+												case GUI_STATE_GET_FAVORITES:
+													update_channelid_of_video(gui, gui->cur_cat->current);
+													break;
+												default:
+													break;
+											}
 										}
 									}
 								}

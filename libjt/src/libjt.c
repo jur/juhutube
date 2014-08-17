@@ -1511,6 +1511,24 @@ int jt_get_playlist_items(jt_access_token_t *at, const char *playlistid, const c
 	return rv;
 }
 
+int jt_get_video(jt_access_token_t *at, const char *videoid)
+{
+	int rv;
+
+	LOG("%s()\n", __FUNCTION__);
+
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"video.json",
+#else
+		NULL,
+#endif
+		"https://www.googleapis.com/youtube/v3/videos?part=snippet&id=%s",
+		videoid);
+
+	return rv;
+}
+
 static int jt_load_token_file(jt_access_token_t *at, const char *filename)
 {
 	void *mem;

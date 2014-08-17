@@ -300,6 +300,7 @@ int jt_get_channel_playlists(jt_access_token_t *at, const char *channelid, const
  * Get the playlist items for the playlistid.
  * The function will automatically refresh access tokens when needed.
  *
+ * @param playlistid ID of the playlist.
  * @param pageToken Must be "" for the first page. When this function is
  *        called the next page is returned in the JSON attribute "nextPageToken".
  *
@@ -312,6 +313,22 @@ int jt_get_channel_playlists(jt_access_token_t *at, const char *channelid, const
  * @return JT_PROTOCOL_ERROR Protocol error.
  */
 int jt_get_playlist_items(jt_access_token_t *at, const char *playlistid, const char *pageToken);
+
+/**
+ * Get the video information for the videoid.
+ * The function will automatically refresh access tokens when needed.
+ *
+ * @param videoid ID of the video.
+ *
+ * @return JT_OK On success.
+ * @return JT_TRANSFER_ERROR When an HTTPS transfer error happened. Wrong
+ *         certificate, no DNS and other errors.
+ * @return JT_AUTH_ERROR When permission denied.
+ * @return JT_ERROR_ACCESS_TOKEN When jt_get_token() or jt_load_token() wasn't
+ *         called.
+ * @return JT_PROTOCOL_ERROR Protocol error.
+ */
+int jt_get_video(jt_access_token_t *at, const char *videoid);
 
 /**
  * Returns the user code. The user needs to enter this code at the verification
