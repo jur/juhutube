@@ -1342,20 +1342,20 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 			error = jt_json_get_string_by_path(at, "/error/errors[0]/reason");
 
 			if (error != NULL) {
-				LOG_ERROR("%s() URL: %s\n", __FUNCTION__, url);
-				LOG_ERROR("%s\n", error);
 				if (strcmp(error, "authError") == 0) {
 					error = NULL;
 					json_object_put(at->transfer.jobj);
 					at->transfer.jobj = NULL;
 
-					LOG_ERROR("Refreshing token\n");
+					LOG("Refreshing token\n");
 
 					rv = jt_get_refresh_token(at);
 					if (rv == JT_OK) {
 						rv = JT_AUTH_ERROR;
 					}
 				} else {
+					LOG_ERROR("%s() URL: %s\n", __FUNCTION__, url);
+					LOG_ERROR("%s\n", error);
 					if (at->protocol_error != NULL) {
 						free(at->protocol_error);
 						at->protocol_error = NULL;
