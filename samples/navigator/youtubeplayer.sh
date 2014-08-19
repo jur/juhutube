@@ -6,6 +6,18 @@ if [ -z "$PROGRAM" ]; then
 fi
 echo "Initializing..."
 AGENT="$(youtube-dl --dump-user-agent)"
+which ffplay >/dev/null
+if [ $? -eq 0 ]; then
+	PLAYER="ffplay -"
+else
+	if [ "$DISPLAY" = "" ]; then
+		PLAYER="mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -"
+	else
+		PLAYER="mplayer -cache 1024 -"
+	fi
+fi
+which curl >/dev/null
+USE_CURL=$?
 
 if [ -e "/dev/ps2gs" ]; then
 	# Playstation 2 video driver is available
@@ -39,11 +51,10 @@ if [ -x "$PROGRAM" ]; then
 			echo "Getting URL..."
 			URL="$(youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt http://www.youtube.com/watch?v=$VIDEOID)"
 			echo "Starting player..."
-			if [ "$DISPLAY" = "" ]; then
-				# No X11 use SDL:
-				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -
+			if [ $USE_CURL -eq 0 ]; then
+				curl --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
 			else
-				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | mplayer -cache 1024 -
+				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
 			fi
 			rm "/tmp/ytcookie-${VIDEOID}.txt"
 		else
