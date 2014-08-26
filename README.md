@@ -49,13 +49,13 @@ You can navigate through the videos using the LEFT and RIGHT keys.
 
 The current selected video is in the upper left corner.
 
-To playback a video press the RETURN key. When you want to playback a playlist
-starting with the current selected video, press SPACE. If you want to play the
-videos in the reverse order press the R key.
+To playback a video press the RETURN key or SQUARE. When you want to playback a
+playlist starting with the current selected video, press SPACE, START or CROSS.
+If you want to play the videos in the reverse order press the R key or TRIANGLE.
 
-To stop the playback press Q. When you don't want to play the remaining videos
+To stop the playback press Q or CIRCLE. When you don't want to play the remaining videos
 in the playlist, you need to press any key when currently no video is played.
-You need first to stop the playback with the Q key.
+You need first to stop the playback with the Q key or CIRCLE.
 
-To get all playlists of a channel press the P key. Press P again to return from
-the playlist.
+To get all playlists of a channel press the P key or CIRCLE. Press P or CIRCLE
+again to return from the playlist.
