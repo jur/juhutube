@@ -38,6 +38,7 @@ int main(int argc, char *argv[])
 	const char *videofile = NULL;
 	const char *catpagetoken = NULL;
 	int catnr = 0;
+	int channelnr = 0;
 	int vidnr = 0;
 	const char *videoid = NULL;
 	const char *playlistid = NULL;
@@ -48,7 +49,7 @@ int main(int argc, char *argv[])
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:")) != -1) {
 		switch(c) {
 			case 'l':
 				/* Write log messages to a file. */
@@ -74,6 +75,10 @@ int main(int argc, char *argv[])
 
 			case 'n':
 				catnr = strtol(optarg, NULL, 0);
+				break;
+
+			case 'j':
+				channelnr = strtol(optarg, NULL, 0);
 				break;
 
 			case 'm':
@@ -126,7 +131,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* Call the GUI main processing loop. */
-	retval = gui_loop(gui, retval, state, videofile, channelid, playlistid, catpagetoken, videoid, catnr, videopagetoken, vidnr);
+	retval = gui_loop(gui, retval, state, videofile, channelid, playlistid, catpagetoken, videoid, catnr, channelnr, videopagetoken, vidnr);
 
 	gui_free(gui);
 	gui = NULL;

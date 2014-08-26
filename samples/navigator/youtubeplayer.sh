@@ -1,4 +1,5 @@
 #!/bin/ash
+#set -x
 DEFAULTPROGRAM="/usr/bin/ytnavigator"
 PROGRAM="$1"
 if [ -z "$PROGRAM" ]; then
@@ -33,10 +34,8 @@ if [ -x "$PROGRAM" ]; then
 		# Use navigator, so that the user can tell which video to play:
 		echo "Starting navigator"
 		if [ "$RETVAL" != "" ]; then
-			set -x
-			"$PROGRAM" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID"
+			"$PROGRAM" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -j "$CHANNELSTART" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID"
 			RETVAL="$?"
-			set +x
 		else
 			"$PROGRAM" -v "$CFG"
 			RETVAL="$?"

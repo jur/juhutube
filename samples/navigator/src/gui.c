@@ -189,6 +189,8 @@ struct gui_cat_s {
 	char *title;
 	/** Number of the channel in the list. */
 	int channelNr;
+	/** Number of the channel in the list for the first of the page. */
+	int channelStart;
 	/** Token to get the next channel via the YouTube API. */
 	char *channelNextPageToken;
 	/** Token to get the previous channel via the YouTube API. */
@@ -211,6 +213,8 @@ struct gui_cat_s {
 	enum gui_state prevPageState;
 	/** First page to load. */
 	const char *videopagetoken;
+	/** First page valid for the following playlist. */
+	const char *expected_playlistid;
 	/** Videonumber of the first video of the page specified by videopagetoken. */
 	int vidnr;
 };
@@ -768,13 +772,42 @@ static SDL_Surface *gui_load_image(transfer_t *transfer, const char *url)
 	return image;
 }
 
+/**
+ * Print text to an SDL surface.
+ *
+ * @param image This object is freed.
+ * @param format printf-like format string.
+ *
+ * @returns SDL surface which should replace the image.
+ */
+static SDL_Surface *gui_printf(TTF_Font *font, SDL_Surface *image, const char *format, ...)
+{
+	va_list ap;
+	SDL_Color clrFg = {255, 255, 255, 0}; /* White */
+	char *text = NULL;
+	int ret;
+
+	if (image != NULL) {
+		SDL_FreeSurface(image);
+		image = NULL;
+	}
+
+	va_start(ap, format);
+	ret = vasprintf(&text, format, ap);
+	va_end(ap);
+	if (ret == -1) {
+		text = NULL;
+		return NULL;
+	}
+
+	return TTF_RenderUTF8_Solid(font, text, clrFg);
+}
 
 static void gui_paint_cat_view(gui_t *gui)
 {
 	SDL_Rect rcDest = { BORDER_X /* X pos */, 90 /* Y pos */, 0, 0 };
 	gui_cat_t *cat;
 	int load_counter;
-	SDL_Color clrFg = {255, 255, 255, 0}; /* White */
 
 	load_counter = 0;
 	cat = gui->current;
@@ -782,8 +815,14 @@ static void gui_paint_cat_view(gui_t *gui)
 		SDL_Surface *sText = NULL;
 
 		if (cat->title != NULL) {
+			int nr;
+
+			nr = cat->subnr;
+			if (cat->subnr == 0) {
+				nr = cat->channelNr;
+			}
 			/* Convert text to an image. */
-			sText = TTF_RenderUTF8_Solid(gui->font, cat->title, clrFg);
+			sText = gui_printf(gui->font, sText, "%03d %s", nr + 1, cat->title);
 		}
 		if (sText != NULL) {
 			SDL_Rect headerDest = {40, 40, 0, 0};
@@ -819,7 +858,7 @@ static void gui_paint_cat_view(gui_t *gui)
 					}
 				}
 				if (current->imagemedium == NULL) {
-					current->imagemedium = TTF_RenderUTF8_Solid(gui->font, "No Thumbnail", clrFg);
+					current->imagemedium = gui_printf(gui->font, current->imagemedium, "No Thumbnail");
 				}
 				if ((current->loadedmedium != IMG_LOADED) && (current->loaded == IMG_LOADED)) {
 					/* Use small image when medium image is not yet available. */
@@ -845,7 +884,7 @@ static void gui_paint_cat_view(gui_t *gui)
 					}
 				}
 				if (current->image == NULL) {
-					current->image = TTF_RenderUTF8_Solid(gui->font, "No Thumbnail", clrFg);
+					current->image = gui_printf(gui->font, current->image, "No Thumbnail");
 				}
 				image = current->image;
 			}
@@ -873,7 +912,7 @@ static void gui_paint_cat_view(gui_t *gui)
 					/* Print video title under the image. */
 					if (cat->title != NULL) {
 						/* Convert text to an image. */
-						sText = TTF_RenderUTF8_Solid(gui->smallfont, current->title, clrFg);
+						sText = gui_printf(gui->smallfont, sText, "[%d] %s", current->subnr + 1, current->title);
 					}
 					if (sText != NULL) {
 						SDL_Rect headerDest = rcDest;
@@ -968,7 +1007,6 @@ static void gui_paint_cat_view(gui_t *gui)
 
 static void gui_paint_status(gui_t *gui)
 {
-	SDL_Color clrFg = {255, 255, 255, 0}; /* White */
 	const char *text;
 	char t[2];
 	SDL_Rect rcDest = {BORDER_X, BORDER_Y, 0, 0};
@@ -987,7 +1025,7 @@ static void gui_paint_status(gui_t *gui)
 		} else {
 			SDL_Surface *sText = NULL;
 
-			sText = TTF_RenderUTF8_Solid(gui->font, t, clrFg);
+			sText = gui_printf(gui->font, sText, t);
 			if (sText != NULL) {
 				if ((rcDest.x + sText->w) >= (gui->screen->w - BORDER_X)) {
 					rcDest.x = BORDER_X;
@@ -1024,39 +1062,6 @@ static void gui_paint(gui_t *gui)
 	/* Update the screen content. */
 	SDL_UpdateRect(gui->screen, 0, 0, gui->screen->w, gui->screen->h);
 }
-
-#if 0
-/**
- * Print text to an SDL surface.
- *
- * @param image This object is freed.
- * @param format printf-like format string.
- *
- * @returns SDL surface which should replace the image.
- */
-static SDL_Surface *gui_printf(gui_t *gui, SDL_Surface *image, const char *format, ...)
-{
-	va_list ap;
-	SDL_Color clrFg = {255, 255, 255, 0}; /* White */
-	char *text = NULL;
-	int ret;
-
-	if (image != NULL) {
-		SDL_FreeSurface(image);
-		image = NULL;
-	}
-
-	va_start(ap, format);
-	ret = vasprintf(&text, format, ap);
-	va_end(ap);
-	if (ret == -1) {
-		text = NULL;
-		return NULL;
-	}
-
-	return TTF_RenderUTF8_Solid(gui->font, text, clrFg);
-}
-#endif
 
 /** Free large thumbnails to get more memory for new thumbnails. */
 static void gui_cat_large_free(gui_cat_t *cat)
@@ -1606,7 +1611,7 @@ static int update_favorites(gui_t *gui, gui_cat_t *selected_cat, int reverse)
 	return rv;
 }
 
-static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *catpagetoken, int catnr, const char *videopagetoken, int vidnr)
+static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *catpagetoken, int catnr, const char *selected_playlistid, const char *videopagetoken, int vidnr)
 {
 	int rv;
 	int subnr;
@@ -1675,7 +1680,12 @@ static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse
 					cat->channelid = strdup(channelid);
 					cat->subnr = subnr;
 			 		cat->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
-					cat->videopagetoken = videopagetoken;
+					/* Check if this playlist should be selected. */
+					if (selected_playlistid != NULL) {
+						/* Select same video page as selected before. */
+						cat->videopagetoken = videopagetoken;
+						cat->expected_playlistid = selected_playlistid;
+					}
 					cat->vidnr = vidnr;
 					if (i == 0) {
 						cat->subscriptionPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
@@ -1703,6 +1713,7 @@ static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 {
 	int rv;
 	int channelNr;
+	int channelStart;
 	const char *nextPageToken;
 
 	if (selected_cat == NULL) {
@@ -1719,6 +1730,7 @@ static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 			channelNr++;
 		}
 	}
+	channelStart = channelNr;
 	rv = jt_get_channels(gui->at, selected_cat->channelid, nextPageToken);
 	if (rv == JT_OK) {
 		int totalResults = 0;
@@ -1764,6 +1776,7 @@ static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 						cat->prevPageState = GUI_STATE_GET_PREV_CHANNELS;
 					}
 					cat->channelNr = channelNr;
+					cat->channelStart = channelStart;
 					channelid = jt_json_get_string_by_path(gui->at, "/items[%d]/id", i);
 
 					if (channelid != NULL) {
@@ -1781,6 +1794,13 @@ static int update_channels(gui_t *gui, gui_cat_t *selected_cat, gui_cat_t **l)
 							cat->title = NULL;
 						}
 						cat->title = title;
+					}
+					if (cat->expected_playlistid != NULL) {
+						if (strcmp(playlistid, cat->expected_playlistid) != 0) {
+							/* Page token is not valid for current playllist. */
+							cat->videopagetoken = NULL;
+							cat->expected_playlistid = NULL;
+						}
 					}
 					if (i == 0) {
 						cat->channelPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
@@ -1806,6 +1826,7 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat, const char *s
 {
 	int rv;
 	int channelNr;
+	int channelStart;
 	const char *nextPageToken;
 
 	if (selected_cat == NULL) {
@@ -1826,6 +1847,7 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat, const char *s
 			return JT_ERROR;
 		}
 	}
+	channelStart = channelNr;
 	rv = jt_get_my_channels(gui->at, nextPageToken);
 	if (rv == JT_OK) {
 		int totalResults = 0;
@@ -1870,12 +1892,14 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat, const char *s
 							cat->nextPageState = GUI_STATE_GET_MY_CHANNELS;
 							cat->prevPageState = GUI_STATE_GET_MY_PREV_CHANNELS;
 							cat->channelNr = channelNr;
+							cat->channelStart = channelStart;
 							cat->channelid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id", i));
 							cat->playlistid = strdup(playlistid);
 							/* Check if this playlist should be selected. */
 							if ((selected_playlistid != NULL) && (strcmp(selected_playlistid, playlistid) == 0)) {
 								/* Select same video page as selected before. */
 								cat->videopagetoken = videopagetoken;
+								cat->expected_playlistid = selected_playlistid;
 							}
 					 		title = jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i);
 							if (title != NULL) {
@@ -1937,10 +1961,11 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat, const char *s
 	return rv;
 }
 
-static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *channelid, const char *catpagetoken, int subnr, const char *videopagetoken, int vidnr)
+static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int reverse, const char *channelid, const char *catpagetoken, int subnr, const char *selected_playlistid, const char *videopagetoken, int vidnr)
 {
 	int rv;
 	int channelNr;
+	int channelStart;
 	const char *pageToken;
 
 	if ((selected_cat == NULL) || (selected_cat->nextPageState != GUI_STATE_GET_CHANNEL_PLAYLIST)) {
@@ -2002,6 +2027,7 @@ static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int rev
 		if (reverse) {
 			channelNr -= resultsPerPage;
 		}
+		channelStart = channelNr;
 		for (i = 0; (i < resultsPerPage) && (channelNr < totalResults); i++) {
 			const char *playlistid;
 
@@ -2026,6 +2052,7 @@ static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int rev
 					cat->nextPageState = GUI_STATE_GET_CHANNEL_PLAYLIST;
 					cat->prevPageState = GUI_STATE_GET_PREV_CHANNEL_PLAYLIST;
 					cat->channelNr = channelNr;
+					cat->channelStart = channelStart;
 					channelid = jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/channelId", i);
 
 					if (channelid != NULL) {
@@ -2044,7 +2071,12 @@ static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int rev
 						}
 						cat->title = title;
 					}
-					cat->videopagetoken = videopagetoken;
+					/* Check if this playlist should be selected. */
+					if ((selected_playlistid != NULL) && (strcmp(selected_playlistid, playlistid) == 0)) {
+						/* Select same video page as selected before. */
+						cat->videopagetoken = videopagetoken;
+						cat->expected_playlistid = selected_playlistid;
+					}
 					cat->vidnr = vidnr;
 					if (i == 0) {
 						cat->channelPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
@@ -2071,7 +2103,36 @@ static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int rev
 	return rv;
 }
 
-static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem_t *elem, int format, int buffersize)
+/** Find page token for cat. */
+static const char *find_cat_page_token(gui_t *gui, gui_cat_t *cat)
+{
+	if (cat != NULL) {
+		gui_cat_t *cur;
+		const char *rv = NULL;
+
+		cur = cat->next;
+		while ((cur != NULL) && (cur != gui->categories) && (cat->prevPageState == cur->prevPageState)) {
+			rv = gui_get_prevPageToken(cur);
+			if (rv != NULL) {
+				printf("Found page token at channelNr %d.\n", cur->channelNr);
+				return rv;
+			}
+			cur = cur->next;
+		}
+		cur = cat->prev;
+		while ((cur != NULL) && (cur != gui->categories->prev) && (cat->nextPageState == cur->nextPageState)) {
+			rv = gui_get_nextPageToken(cur);
+			if (rv != NULL) {
+				printf("Found page token at channelNr %d.\n", cur->channelNr);
+				return rv;
+			}
+			cur = cur->prev;
+		}
+	}
+	return NULL;
+}
+
+static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem_t *elem, int format, int buffersize, const char *lastcatpagetoken)
 {
 	if (videofile == NULL) {
 		char *cmd = NULL;
@@ -2117,6 +2178,7 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 		if (fout != NULL) {
 			gui_elem_t *p;
 			int vidnr = 0;
+			const char *catPageToken;
 
 			fprintf(fout, "VIDEOID=\"%s\"\n", elem->videoid);
 			if (cat->playlistid != NULL) {
@@ -2129,10 +2191,12 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			} else {
 				fprintf(fout, "CHANNELID=\"\"\n");
 			}
-			if ((cat->next != NULL) && (cat->next != gui->categories) && (gui_get_prevPageToken(cat->next) != NULL)) {
-				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_prevPageToken(cat->next));
-			} else if ((cat->prev != NULL) && (cat != gui->categories) && (gui_get_nextPageToken(cat->prev) != NULL)) {
-				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", gui_get_nextPageToken(cat->prev));
+			catPageToken = find_cat_page_token(gui, cat);
+			if (catPageToken == NULL) {
+				catPageToken = lastcatpagetoken;
+			}
+			if (catPageToken != NULL) {
+				fprintf(fout, "CATPAGETOKEN=\"%s\"\n", catPageToken);
 			} else {
 				fprintf(fout, "CATPAGETOKEN=\"\"\n");
 			}
@@ -2174,6 +2238,8 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 				}
 			}
 			fprintf(fout, "CATNR=\"%d\"\n", cat->subnr);
+			fprintf(fout, "CHANNELNR=\"%d\"\n", cat->channelNr);
+			fprintf(fout, "CHANNELSTART=\"%d\"\n", cat->channelStart);
 			/* Number of the first video when using VIDPAGETOKEN. */
 			fprintf(fout, "VIDNR=\"%d\"\n", vidnr);
 			fprintf(fout, "STATE=\"%d\"\n", cat->nextPageState);
@@ -2216,8 +2282,9 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 	if (cat != NULL) {
 		gui_elem_t *p;
 
-		printf("Category is subnr %d: channelid %s: playlistid %s: nextPage %s:%s prevPage %s:%s: %s\n",
+		printf("Category is subnr %d: channelNr: %d channelid %s: playlistid %s: nextPage %s:%s prevPage %s:%s: %s\n",
 			cat->subnr,
+			cat->channelNr,
 			cat->channelid,
 			cat->playlistid,
 			get_state_text(cat->nextPageState), gui_get_nextPageToken(cat),
@@ -2249,7 +2316,7 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 /**
  * Main loop for GUI.
  */
-int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, const char *videopagetoken, int vidnr)
+int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr)
 {
 	int done;
 	SDL_Event event;
@@ -2260,7 +2327,10 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 	unsigned int wakeupcount;
 	unsigned int sleeptime = 50 * 3;
 	int rv;
+	int foundvid = 0;
+	const char *lastcatpagetoken;
 
+	lastcatpagetoken = catpagetoken;
 	done = 0;
 	wakeupcount = 5;
 	rv = JT_OK;
@@ -2312,7 +2382,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 									if (elem->videoid != NULL) {
 										int ret = 1;
 
-										ret = playVideo(gui, videofile, cat, elem, 0, 4096);
+										ret = playVideo(gui, videofile, cat, elem, 0, 4096, lastcatpagetoken);
 										if ((videofile != NULL) && (ret == 0)) {
 											/* Terminate program, another program needs to use the videofile
 											 * to play the video.
@@ -2343,7 +2413,9 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->statusmsg == NULL) {
 									if (gui->current != NULL) {
+										lastcatpagetoken = NULL;
 										if (gui->prev_cat != NULL) {
+											/* Back to previous view from playlist view. */
 											gui_cat_t *cat;
 											enum gui_state nextPageState;
 
@@ -2367,6 +2439,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												}
 											}
 										} else {
+											/* Show playlists of channel. */
 											gui->cur_cat = gui->current;
 											gui->prev_cat = gui->current;
 											state = GUI_STATE_GET_CHANNEL_PLAYLIST;
@@ -2484,6 +2557,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												/* Load previous page. */
 												state = cat->prevPageState;
 												gui->cur_cat = cat;
+												lastcatpagetoken = NULL;
 											}
 										}
 										if (state != GUI_STATE_RUNNING) {
@@ -2516,6 +2590,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												/* Load previous page. */
 												state = cat->nextPageState;
 												gui->cur_cat = cat;
+												lastcatpagetoken = NULL;
 											}
 										}
 										if (state != GUI_STATE_RUNNING) {
@@ -2537,6 +2612,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												/* Load previous page. */
 												state = cat->nextPageState;
 												gui->cur_cat = cat;
+												lastcatpagetoken = NULL;
 											}
 										}
 
@@ -2551,6 +2627,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												/* Load previous page. */
 												state = cat->prevPageState;
 												gui->cur_cat = cat;
+												lastcatpagetoken = NULL;
 											}
 										}
 									}
@@ -2590,6 +2667,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 										/* Get more subscriptions. */
 										state = cat->nextPageState;
 										gui->cur_cat = cat;
+										lastcatpagetoken = NULL;
 									}
 								}
 							}
@@ -2843,11 +2921,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 						if (rv == JT_OK) {
 							gui_cat_t *cat;
 
-							if (videoid != NULL) {
+							if (!foundvid && (videoid != NULL)) {
 								cat = gui->categories;
 								while(cat != NULL) {
 									if ((cat->nextPageState == ((enum gui_state) getstate)) && (cat->playlistid != NULL)
-										&& (playlistid != NULL) && (strcmp(cat->playlistid, playlistid) == 0) && (cat->subnr == catnr)) {
+										&& (playlistid != NULL) && (strcmp(cat->playlistid, playlistid) == 0)) {
 										/* Select current category which was specified by the parameter catnr. */
 										gui->current = cat;
 										break;
@@ -2858,7 +2936,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 									}
 								}
 								if ((cat != NULL) && (cat->nextPageState == ((enum gui_state) getstate)) && (cat->playlistid != NULL)
-									&& (playlistid != NULL) && (strcmp(cat->playlistid, playlistid) == 0) && (cat->subnr == catnr)) {
+									&& (playlistid != NULL) && (strcmp(cat->playlistid, playlistid) == 0)) {
 									/* Try to find video selected by parameter videoid. */
 									gui_elem_t *elem;
 
@@ -2867,6 +2945,8 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 										if ((elem->videoid != NULL) && (strcmp(elem->videoid, videoid) == 0)) {
 											/* Found video, so select it. */
 											cat->current = elem;
+											/* Next video can be selected if user selected to play playlist. */
+											foundvid = 1;
 											break;
 										}
 										elem = elem->next;
@@ -2930,10 +3010,10 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 			case GUI_STATE_GET_SUBSCRIPTIONS: {
 				if (((enum gui_state) getstate) == state) {
-					rv = update_subscriptions(gui, gui->cur_cat, 0, catpagetoken, catnr, videopagetoken, vidnr);
+					rv = update_subscriptions(gui, gui->cur_cat, 0, catpagetoken, catnr, playlistid, videopagetoken, vidnr);
 					catpagetoken = NULL;
 				} else {
-					rv = update_subscriptions(gui, gui->cur_cat, 0, NULL, 0, NULL, 0);
+					rv = update_subscriptions(gui, gui->cur_cat, 0, NULL, 0, NULL, NULL, 0);
 				}
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
@@ -2947,7 +3027,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 			}
 
 			case GUI_STATE_GET_PREV_SUBSCRIPTIONS: {
-				rv = update_subscriptions(gui, gui->cur_cat, 1, NULL, 0, NULL, 0);
+				rv = update_subscriptions(gui, gui->cur_cat, 1, NULL, 0, NULL, NULL, 0);
 				if (rv == JT_OK) {
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
@@ -3011,7 +3091,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												/* Load selected category (was selected before restart). */
 												afterplayliststate = getstate;
 												/* Use current to return from playlist. */
-												/* TBD: Load correct category. */
 												gui->prev_cat = gui->current;
 												break;
 											default:
@@ -3054,10 +3133,10 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					LOG_ERROR("Unsupported state: %d %s.\n", state, get_state_text(state));
 				}
 				if (((enum gui_state) getstate) == state) {
-					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, catpagetoken, catnr, videopagetoken, vidnr);
+					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, catpagetoken, channelnr, playlistid, videopagetoken, vidnr);
 					catpagetoken = NULL;
 				} else {
-					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, NULL, 0, NULL, 0);
+					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, NULL, 0, NULL, NULL, 0);
 				}
 				if (rv == JT_OK) {
 					if (gui->get_playlist_cat == NULL) {
@@ -3124,7 +3203,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 					/* Play next video in playlist. */
 					cat = gui->current;
-					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && (retval == 2)) {
+					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && foundvid && (retval == 2)) {
 						if ((cat->current != NULL) && (cat->elem != NULL) && (cat->current->next == cat->elem)) {
 							gui_elem_t *last;
 
@@ -3151,7 +3230,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 					/* Play previous video in playlist. */
 					cat = gui->current;
-					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && (retval == 3)) {
+					if ((state == GUI_STATE_RUNNING) && (cat != NULL) && foundvid && (retval == 3)) {
 						if ((cat->current != NULL) && (cat->elem != NULL) && (cat->current->prev == cat->elem->prev)) {
 							gui_elem_t *first;
 
@@ -3192,12 +3271,15 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 						int ret;
 
 						/* Play next video. */
-						ret = playVideo(gui, videofile, cat, elem, 0, 4096);
+						ret = playVideo(gui, videofile, cat, elem, 0, 4096, lastcatpagetoken);
 						if ((videofile != NULL) && (ret == 0)) {
 							/* Terminate program, another program needs to use the videofile
 							 * to play the video.
 							 */
 							done = 1;
+						} else {
+							/* No restart, selecting next video will always work. */
+							foundvid = 1;
 						}
 						if (ret == 0) {
 							if (state == GUI_STATE_PLAY_VIDEO) {
