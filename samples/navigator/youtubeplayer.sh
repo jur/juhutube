@@ -17,8 +17,10 @@ else
 		PLAYER="mplayer -cache 1024 -"
 	fi
 fi
-which curl >/dev/null
-USE_CURL=$?
+
+# Prefer wget, because it has less problems than curl.
+which wget >/dev/null
+USE_WGET=$?
 
 if [ -e "/dev/ps2gs" ]; then
 	# Playstation 2 video driver is available
@@ -50,7 +52,7 @@ if [ -x "$PROGRAM" ]; then
 			echo "Getting URL..."
 			URL="$(youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt http://www.youtube.com/watch?v=$VIDEOID)"
 			echo "Starting player..."
-			if [ $USE_CURL -eq 0 ]; then
+			if [ $USE_WGET -ne 0 ]; then
 				curl --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
 			else
 				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
