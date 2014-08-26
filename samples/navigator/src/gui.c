@@ -2484,10 +2484,10 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											done = 1;
 										}
 										if (ret == 0) {
-											if (event.key.keysym.sym == SDLK_RETURN) {
+											if (key == SDLK_RETURN) {
 												/* Play current video only. */
 												retval = 1;
-											} else if (event.key.keysym.sym == SDLK_SPACE) {
+											} else if (key == SDLK_SPACE) {
 												/* Play playlist. */
 												retval = 2;
 											} else {
