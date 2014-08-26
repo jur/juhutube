@@ -50,7 +50,7 @@ if [ -x "$PROGRAM" ]; then
 			source "$CFG"
 			echo "Selected video $VIDEOTITLE"
 			echo "Getting URL..."
-			URL="$(youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt http://www.youtube.com/watch?v=$VIDEOID)"
+			URL="$(youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID)"
 			echo "Starting player..."
 			if [ $USE_WGET -ne 0 ]; then
 				curl --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
