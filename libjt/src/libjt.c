@@ -1485,7 +1485,7 @@ int jt_get_channel_playlists(jt_access_token_t *at, const char *channelid, const
 #else
 		NULL,
 #endif
-		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&channelId=%s&maxResults=5&pageToken=%s",
+		"https://www.googleapis.com/youtube/v3/playlists?part=snippet&channelId=%s&maxResults=2&pageToken=%s",
 		channelid,
 		pageToken);
 
@@ -1504,7 +1504,7 @@ int jt_get_playlist_items(jt_access_token_t *at, const char *playlistid, const c
 #else
 		NULL,
 #endif
-		"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet%%2CcontentDetails&playlistId=%s&maxResults=20&pageToken=%s",
+		"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet%%2CcontentDetails&playlistId=%s&maxResults=5&pageToken=%s",
 		playlistid,
 		pageToken);
 

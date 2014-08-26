@@ -23,20 +23,24 @@
 #define IMG_LOAD_RETRY 5
 /** Special value for image loaded successfully. */
 #define IMG_LOADED 10
+/** Maximum categories shown. */
+#define MAX_SHOW 3
+/** Maximum videos per cat shown. */
+#define MAX_VIDS 5
 
 /* Cache size, defined in the distance of the categories. */
 /** How many categories should preserve the large thumbnails.
  * Foward and backward from the current selected category.
  */
-#define PRESERVE_MEDIUM_IMAGES 4
+#define PRESERVE_MEDIUM_IMAGES 1
 /** How many categories should preserve the small thumbnails.
  * Foward and backward from the current selected category.
  */
-#define PRESERVE_SMALL_IMAGES 15
+#define PRESERVE_SMALL_IMAGES 4
 /** How many categories should be stored in memory.
  * Foward and backward from the current selected category.
  */
-#define PRESERVE_CAT 40
+#define PRESERVE_CAT 10
 
 /** How many videos are preserved in each category 2 * PRESERVE_ELEM * results
  * per page (YouTube API)
@@ -264,6 +268,9 @@ struct gui_s {
 
 	/** Used to return from channel playlist. */
 	gui_cat_t *prev_cat;
+
+	/** SDL Joystick handle. */
+	SDL_Joystick *joystick;
 };
 
 /**
@@ -559,7 +566,7 @@ gui_t *gui_alloc(void)
 	memset(gui, 0 , sizeof(*gui));
 	gui->mindistance = 34;
 
-	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) < 0) {
 		LOG_ERROR("Couldn't initialize SDL: %s\n", SDL_GetError());
 		return NULL;
 	}
@@ -666,6 +673,11 @@ gui_t *gui_alloc(void)
 		return NULL;
 	}
 
+	if (SDL_NumJoysticks() > 0) {
+		gui->joystick = SDL_JoystickOpen(0);
+		SDL_JoystickEventState(SDL_ENABLE);
+	}
+
 	return gui;
 }
 
@@ -720,6 +732,11 @@ void gui_free(gui_t *gui)
 			cat = next;
 		}
 
+		if (gui->joystick != NULL) {
+			SDL_JoystickClose(gui->joystick);
+			gui->joystick = NULL;
+		}
+
 		if (gui->statusmsg != NULL) {
 			free(gui->statusmsg);
 			gui->statusmsg = NULL;
@@ -749,6 +766,7 @@ void gui_free(gui_t *gui)
 			gui->screen = NULL;
 		}
 		TTF_Quit();
+		SDL_VideoQuit();
 		SDL_Quit();
 		free(gui);
 		gui = NULL;
@@ -786,6 +804,7 @@ static SDL_Surface *gui_printf(TTF_Font *font, SDL_Surface *image, const char *f
 	SDL_Color clrFg = {255, 255, 255, 0}; /* White */
 	char *text = NULL;
 	int ret;
+	SDL_Surface *rv;
 
 	if (image != NULL) {
 		SDL_FreeSurface(image);
@@ -800,7 +819,12 @@ static SDL_Surface *gui_printf(TTF_Font *font, SDL_Surface *image, const char *f
 		return NULL;
 	}
 
-	return TTF_RenderUTF8_Solid(font, text, clrFg);
+	rv = TTF_RenderUTF8_Solid(font, text, clrFg);
+
+	free(text);
+	text = NULL;
+
+	return rv;
 }
 
 static void gui_paint_cat_view(gui_t *gui)
@@ -808,6 +832,9 @@ static void gui_paint_cat_view(gui_t *gui)
 	SDL_Rect rcDest = { BORDER_X /* X pos */, 90 /* Y pos */, 0, 0 };
 	gui_cat_t *cat;
 	int load_counter;
+	int i;
+
+	i = 0;
 
 	load_counter = 0;
 	cat = gui->current;
@@ -831,17 +858,19 @@ static void gui_paint_cat_view(gui_t *gui)
 			sText = NULL;
 		}
 	}
-	while (cat != NULL) {
+	while ((cat != NULL) && (i < MAX_SHOW)) {
 		gui_elem_t *current;
 		int maxHeight = 0;
+		int j;
 
 		rcDest.x = BORDER_X;
 
 		current = cat->current;
-		while (current != NULL) {
+		j = 0;
+		while ((current != NULL) && (j < MAX_VIDS)) {
 			SDL_Surface *image;
 
-			if ((cat == gui->current) && (current->urlmedium != NULL)) {
+			if ((cat == gui->current) && (current == cat->current) && (current->urlmedium != NULL)) {
 				/* Show medium image size. */
 				if ((current->loadedmedium < IMG_LOAD_RETRY) && (load_counter < MAX_LOAD_WHILE_PAINT)) {
 					load_counter++;
@@ -981,6 +1010,7 @@ static void gui_paint_cat_view(gui_t *gui)
 				}
 
 			}
+			j++;
 		}
 		rcDest.y += maxHeight + BORDER_Y;
 		if (rcDest.y >= gui->screen->h) {
@@ -1002,6 +1032,7 @@ static void gui_paint_cat_view(gui_t *gui)
 			/* Stop when it repeats. */
 			break;
 		}
+		i++;
 	}
 }
 
@@ -2114,7 +2145,6 @@ static const char *find_cat_page_token(gui_t *gui, gui_cat_t *cat)
 		while ((cur != NULL) && (cur != gui->categories) && (cat->prevPageState == cur->prevPageState)) {
 			rv = gui_get_prevPageToken(cur);
 			if (rv != NULL) {
-				printf("Found page token at channelNr %d.\n", cur->channelNr);
 				return rv;
 			}
 			cur = cur->next;
@@ -2123,7 +2153,6 @@ static const char *find_cat_page_token(gui_t *gui, gui_cat_t *cat)
 		while ((cur != NULL) && (cur != gui->categories->prev) && (cat->nextPageState == cur->nextPageState)) {
 			rv = gui_get_nextPageToken(cur);
 			if (rv != NULL) {
-				printf("Found page token at channelNr %d.\n", cur->channelNr);
 				return rv;
 			}
 			cur = cur->prev;
@@ -2361,13 +2390,78 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 		/* Check for events */
 		while(SDL_PollEvent(&event))
 		{
+			SDLKey key;
+
+			key = event.key.keysym.sym;
+			switch(event.type)
+			{
+				case SDL_JOYAXISMOTION:
+					if (event.jaxis.axis == 0) {
+						if (event.jaxis.value > 3000) {
+							event.type = SDL_KEYDOWN;
+							key = SDLK_RIGHT;
+						} else if (event.jaxis.value < -3000) {
+							event.type = SDL_KEYDOWN;
+							key = SDLK_LEFT;
+						}
+					} else if (event.jaxis.axis == 1) {
+						if (event.jaxis.value > 3000) {
+							event.type = SDL_KEYDOWN;
+							key = SDLK_DOWN;
+						} else if (event.jaxis.value < -3000) {
+							event.type = SDL_KEYDOWN;
+							key = SDLK_UP;
+						}
+					}
+					break;
+			}
+
 			/* Disable any automatic when a key is pressed. */
 			switch(event.type)
 			{
+				case SDL_JOYBUTTONDOWN:
+					switch(event.jbutton.button) {
+						case 0: /* Square */
+
+							/* Play single video */
+							key = SDLK_RETURN;
+							break;
+						case 9: /* Start */
+						case 1: /* Cross */
+							/* Play playlist */
+							key = SDLK_SPACE;
+							break;
+						case 2: /* Triangle */
+							/* Play playlist backwards */
+							key = SDLK_r;
+							break;
+						case 8: /* Select */
+						case 3: /* Circle */
+							/* Select playllist */
+							key = SDLK_p;
+							break;
+						case 4: /* L1 */
+							key = SDLK_HOME;
+							break;
+						case 5: /* R1 */
+							key = SDLK_END;
+							break;
+						case 6: /* L2 */
+							key = SDLK_PAGEUP;
+							break;
+						case 7: /* R2 */
+							key = SDLK_PAGEDOWN;
+							break;
+						default:
+							key = SDLK_l;
+							printf("SDL_JOYBUTTONDOWN: %d\n", event.jbutton.button);
+						break;
+					}
+
 				case SDL_KEYDOWN:
 					retval = 0;
 					/* Key pressed on keyboard. */
-					switch(event.key.keysym.sym) {
+					switch(key) {
 						case SDLK_SPACE:
 						case SDLK_r:
 						case SDLK_RETURN: {
