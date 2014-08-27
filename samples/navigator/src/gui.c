@@ -13,8 +13,8 @@
 #include "clientid.h"
 #include "libjt.h"
 
-#define TOKEN_FILE ".youtubetoken.json"
-#define REFRESH_TOKEN_FILE ".refreshtoken.json"
+#define TOKEN_FILE ".youtubetoken"
+#define REFRESH_TOKEN_FILE ".refreshtoken"
 #define SECRET_FILE ".client_secret.json"
 
 /** Maximum images loaded while painting. */
@@ -27,6 +27,10 @@
 #define MAX_SHOW 3
 /** Maximum videos per cat shown. */
 #define MAX_VIDS 5
+/** Maximum number of Youtube accounts supported. */
+#define MAX_ACCOUNTS 10
+/** Chunk size for loadinf files. */
+#define CHUNK_SIZE 256
 
 /* Cache size, defined in the distance of the categories. */
 /** How many categories should preserve the large thumbnails.
@@ -81,6 +85,7 @@ enum gui_state {
 	GUI_STATE_SLEEP,
 	GUI_STATE_STARTUP,
 	GUI_STATE_LOAD_ACCESS_TOKEN,
+	GUI_STATE_NEW_ACCESS_TOKEN,
 	GUI_STATE_GET_USER_CODE,
 	GUI_STATE_GET_TOKEN,
 	GUI_STATE_LOGGED_IN,
@@ -113,6 +118,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_SLEEP)
 		CASESTATE(GUI_STATE_STARTUP)
 		CASESTATE(GUI_STATE_LOAD_ACCESS_TOKEN)
+		CASESTATE(GUI_STATE_NEW_ACCESS_TOKEN)
 		CASESTATE(GUI_STATE_GET_USER_CODE)
 		CASESTATE(GUI_STATE_GET_TOKEN)
 		CASESTATE(GUI_STATE_LOGGED_IN)
@@ -241,6 +247,8 @@ struct gui_menu_entry_s {
 	enum gui_state state;
 	/** Menu entry number. */
 	int nr;
+	/** Token number for account. */
+	int tokennr;
 
 	/** Next menu entry. */
 	gui_menu_entry_t *next;
@@ -316,6 +324,9 @@ struct gui_s {
 	gui_menu_entry_t *mainmenu;
 	/** Selected menu entry. */
 	gui_menu_entry_t *selectedmenu;
+
+	/** True, if account is allocated. */
+	int account_allocated[MAX_ACCOUNTS];
 };
 
 /**
@@ -699,19 +710,111 @@ static void gui_menu_entry_free(gui_t *gui, gui_menu_entry_t *entry)
 	}
 }
 
+static void *load_file(const char *filename)
+{
+	FILE *fin;
+	int pos = 0;
+	void *mem = NULL;
+	int eof = 0;
+
+	LOG("%s()\n", __FUNCTION__);
+
+	fin = fopen(filename, "rb");
+	if (fin != NULL) {
+		int rv;
+
+		mem = malloc(CHUNK_SIZE);
+		if (mem == NULL) {
+			fclose(fin);
+			fin = NULL;
+			return NULL;
+		}
+		do {
+			rv = fread(mem + pos, 1, CHUNK_SIZE, fin);
+			if (rv < 0) {
+				LOG_ERROR("Failed to read file: %s\n", strerror(errno));
+				free(mem);
+				mem = NULL;
+				return (void *) -1;
+			} else {
+				eof = feof(fin);
+				pos += rv;
+				if (!eof) {
+					mem = realloc(mem, pos + CHUNK_SIZE);
+					if (mem == NULL) {
+						LOG_ERROR("out of memory\n");
+						break;
+					}
+				}
+			}
+		} while (!eof);
+		fclose(fin);
+		fin = NULL;
+
+		return mem;
+	} else {
+		return (void *) -1;
+	}
+}
+
+static char *check_token(int nr)
+{
+	const char *home;
+	char *tokenfile = NULL;
+	int ret;
+	void *mem;
+	json_object *jobj;
+	char *accountname;
+
+	home = getenv("HOME");
+	if (home == NULL) {
+		LOG_ERROR("Environment variable HOME is not set.\n");
+		return NULL;
+	}
+
+	ret = asprintf(&tokenfile, "%s/%s%03d.json", home, TOKEN_FILE, nr);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		return NULL;
+	}
+
+	mem = load_file(tokenfile);
+
+	free(tokenfile);
+	tokenfile = NULL;
+
+	if (mem == NULL) {
+		/* Out of memory */
+		return strdup("Account");
+	}
+	if (mem == ((void *) -1)) {
+		return NULL;
+	}
+	jobj = json_tokener_parse(mem);
+	free(mem);
+	mem = NULL;
+
+	if ((jobj == NULL) || is_error(jobj)) {
+		return NULL;
+	} else {
+		/* TBD: Get better account name. */
+		json_object_put(jobj);
+		ret = asprintf(&accountname, "Account %03d", nr);
+		if (ret == -1) {
+			LOG_ERROR("Out of memory\n");
+			return strdup("Account");
+		}
+		return accountname;
+	}
+}
+
 
 /** Initialize graphic. */
 gui_t *gui_alloc(const char *sharedir)
 {
 	gui_t *gui;
-	const char *home;
-#ifndef CLIENT_SECRET
-	char *secretfile = NULL;
-#endif
-	int ret;
-	char *tokenfile = NULL;
-	char *refreshtokenfile = NULL;
 	const SDL_VideoInfo *info;
+	int i;
 
 	gui = malloc(sizeof(*gui));
 	if (gui == NULL) {
@@ -792,26 +895,77 @@ gui_t *gui_alloc(const char *sharedir)
 		return NULL;
 	}
 
+
+	if (SDL_NumJoysticks() > 0) {
+		gui->joystick = SDL_JoystickOpen(0);
+		SDL_JoystickEventState(SDL_ENABLE);
+	}
+
+	gui->description_status = 0;
+
+	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_NEW_ACCESS_TOKEN);
+	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF);
+	for (i = 0; i < MAX_ACCOUNTS; i++) {
+		char *accountname;
+
+		accountname = check_token(i);
+		if (accountname != NULL) {
+			gui_menu_entry_t *entry;
+
+			entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, accountname, GUI_STATE_LOAD_ACCESS_TOKEN);
+			if (entry != NULL) {
+				entry->tokennr = i;
+				gui->account_allocated[i] = 1;
+			}
+			free(accountname);
+		}
+	}
+
+	return gui;
+}
+
+static int get_next_tokennr(gui_t *gui)
+{
+	/* TBD: Implement token management. */
+	int i;
+	
+	for (i = 0; i < MAX_ACCOUNTS; i++) {
+		if (!gui->account_allocated[i]) {
+			gui->account_allocated[i] = 1;
+			return i;
+		}
+	}
+	return -1;
+}
+
+static jt_access_token_t *alloc_token(int nr)
+{
+	const char *home;
+	jt_access_token_t *at;
+	char *tokenfile = NULL;
+	char *refreshtokenfile = NULL;
+#ifndef CLIENT_SECRET
+	char *secretfile = NULL;
+#endif
+	int ret;
+
 	home = getenv("HOME");
 	if (home == NULL) {
 		LOG_ERROR("Environment variable HOME is not set.\n");
-		gui_free(gui);
 		return NULL;
 	}
 
-	ret = asprintf(&tokenfile, "%s/%s", home, TOKEN_FILE);
+	ret = asprintf(&tokenfile, "%s/%s%03d.json", home, TOKEN_FILE, nr);
 	if (ret == -1) {
 		LOG_ERROR("Out of memory\n");
-		gui_free(gui);
 		return NULL;
 	}
 
-	ret = asprintf(&refreshtokenfile, "%s/%s", home, REFRESH_TOKEN_FILE);
+	ret = asprintf(&refreshtokenfile, "%s/%s%03d.json", home, REFRESH_TOKEN_FILE, nr);
 	if (ret == -1) {
 		free(tokenfile);
 		tokenfile = NULL;
 		LOG_ERROR("Out of memory\n");
-		gui_free(gui);
 		return NULL;
 	}
 
@@ -823,15 +977,14 @@ gui_t *gui_alloc(const char *sharedir)
 		free(tokenfile);
 		tokenfile = NULL;
 		LOG_ERROR("Out of memory\n");
-		gui_free(gui);
 		return NULL;
 	}
 #endif
 
 #ifdef CLIENT_SECRET
-	gui->at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, 0);
+	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, 0);
 #else
-	gui->at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, 0);
+	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, 0);
 #endif
 	free(tokenfile);
 	tokenfile = NULL;
@@ -840,38 +993,60 @@ gui_t *gui_alloc(const char *sharedir)
 	free(secretfile);
 	secretfile = NULL;
 
-	if (gui->at == NULL) {
+	if (at == NULL) {
 		LOG_ERROR("Out of memory\n");
-		gui_free(gui);
 		return NULL;
 	}
-
-	if (SDL_NumJoysticks() > 0) {
-		gui->joystick = SDL_JoystickOpen(0);
-		SDL_JoystickEventState(SDL_ENABLE);
-	}
-
-	gui->description_status = 0;
-
-	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_LOAD_ACCESS_TOKEN);
-	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF);
-
-	return gui;
+	return at;
 }
 
-/** Clean up of graphic libraries. */
-void gui_free(gui_t *gui)
+static void delete_token(int nr)
+{
+	const char *home;
+	char *tokenfile = NULL;
+	char *refreshtokenfile = NULL;
+	int ret;
+
+	home = getenv("HOME");
+	if (home == NULL) {
+		LOG_ERROR("Environment variable HOME is not set.\n");
+		return;
+	}
+
+	ret = asprintf(&tokenfile, "%s/%s%03d.json", home, TOKEN_FILE, nr);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
+	ret = asprintf(&refreshtokenfile, "%s/%s%03d.json", home, REFRESH_TOKEN_FILE, nr);
+	if (ret == -1) {
+		free(tokenfile);
+		tokenfile = NULL;
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
+	unlink(tokenfile);
+	unlink(refreshtokenfile);
+
+	free(tokenfile);
+	tokenfile = NULL;
+	free(refreshtokenfile);
+	refreshtokenfile = NULL;
+}
+
+void gui_free_categories(gui_t *gui)
 {
 	if (gui != NULL) {
 		gui_cat_t *cat;
 		gui_cat_t *next;
-		gui_menu_entry_t *menu;
-		gui_menu_entry_t *mnext;
 
 		/* Was allocated as part of the list gui->categories. */
 		gui->current = NULL;
 		gui->cur_cat = NULL;
 		gui->prev_cat = NULL;
+
 
 		cat = gui->categories;
 		gui->categories = NULL;
@@ -911,6 +1086,17 @@ void gui_free(gui_t *gui)
 			cat = NULL;
 			cat = next;
 		}
+	}
+}
+
+/** Clean up of graphic libraries. */
+void gui_free(gui_t *gui)
+{
+	if (gui != NULL) {
+		gui_menu_entry_t *menu;
+		gui_menu_entry_t *mnext;
+
+		gui_free_categories(gui);
 
 		menu = gui->mainmenu;
 		gui->mainmenu = NULL;
@@ -1088,6 +1274,18 @@ static void gui_paint_cat_view(gui_t *gui)
 			SDL_FreeSurface(sText);
 			sText = NULL;
 		}
+	} else {
+		SDL_Surface *sText = NULL;
+
+		sText = gui_printf(gui->font, sText, "Empty");
+		if (sText != NULL) {
+			SDL_Rect headerDest = {40, 40, 0, 0};
+			rcDest.x = BORDER_X;
+
+			SDL_BlitSurface(sText, NULL, gui->screen, &headerDest);
+			SDL_FreeSurface(sText);
+			sText = NULL;
+		}
 	}
 	while ((cat != NULL) && (i < MAX_SHOW)) {
 		gui_elem_t *current;
@@ -1097,6 +1295,21 @@ static void gui_paint_cat_view(gui_t *gui)
 		rcDest.x = BORDER_X;
 
 		current = cat->current;
+		if (current == NULL) {
+			SDL_Surface *sText = NULL;
+
+			sText = gui_printf(gui->font, sText, "Empty");
+			if (sText != NULL) {
+				if ((gui->description_pos - gui->mindistance) >= (rcDest.y + sText->h)) {
+					SDL_BlitSurface(sText, NULL, gui->screen, &rcDest);
+				}
+				if (maxHeight < sText->h) {
+					maxHeight = sText->h;
+				}
+				SDL_FreeSurface(sText);
+				sText = NULL;
+			}
+		}
 		j = 0;
 		while ((current != NULL) && (j < MAX_VIDS)) {
 			SDL_Surface *image;
@@ -2711,7 +2924,7 @@ static void set_description_select(gui_t *gui)
 	if (gui->description_status != 3) {
 		set_no_description(gui);
 		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Select");
-		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Quit to shell");
+		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Remove");
 		gui->description_status = 3;
 	}
 }
@@ -2954,6 +3167,8 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												}
 											}
 										} else {
+											gui_free_categories(gui);
+
 											/* Back to main menu. */
 											state = GUI_STATE_MAIN_MENU;
 										}
@@ -2961,11 +3176,18 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 								}
 							}
 							if (curstate == GUI_STATE_MAIN_MENU) {
-								set_no_description(gui);
+								gui_menu_entry_t *entry;
 
-								/* Quit */
-								done = 1;
-								retval = 0;
+								entry = gui->selectedmenu;
+								if (entry != NULL) {
+									if (entry->state == GUI_STATE_LOAD_ACCESS_TOKEN) {
+										/* Remove account. */
+										delete_token(entry->tokennr);
+										gui_menu_entry_free(gui, entry);
+										entry = NULL;
+									}
+								}
+								break;
 							}
 							break;
 						}
@@ -3258,9 +3480,53 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 			case GUI_STATE_MAIN_MENU:
 				set_description_select(gui);
+				if (gui->at != NULL) {
+					jt_free(gui->at);
+					gui->at = NULL;
+					gui_free_categories(gui);
+				}
 				break;
 
+			case GUI_STATE_NEW_ACCESS_TOKEN: {
+				gui_menu_entry_t *entry;
+				int nr;
+				
+				nr = get_next_tokennr(gui);
+				if (nr < 0) {
+					gui->statusmsg = buf_printf(gui->statusmsg, "Too many YouTube accounts. Please remove one first.");
+					/* Retry */
+					wakeupcount = DEFAULT_SLEEP;
+					state = GUI_STATE_MAIN_MENU;
+					break;
+				}
+
+				entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Account", GUI_STATE_LOAD_ACCESS_TOKEN);
+				if (entry == NULL) {
+					gui->statusmsg = buf_printf(gui->statusmsg, "Failed to allocate menu entry.");
+					/* Retry */
+					wakeupcount = DEFAULT_SLEEP;
+					state = GUI_STATE_MAIN_MENU;
+					break;
+				}
+				entry->tokennr = nr;
+				gui->selectedmenu = entry;
+				delete_token(entry->tokennr);
+			}
+
 			case GUI_STATE_LOAD_ACCESS_TOKEN:
+				if (gui->at != NULL) {
+					jt_free(gui->at);
+					gui->at = NULL;
+					gui_free_categories(gui);
+				}
+				gui->at = alloc_token(gui->selectedmenu->tokennr);
+				if (gui->at == NULL) {
+					gui->statusmsg = buf_printf(gui->statusmsg, "Failed to allocate token.");
+					/* Retry */
+					wakeupcount = DEFAULT_SLEEP;
+					state = GUI_STATE_MAIN_MENU;
+					break;
+				}
 				/* Try to load existing access for YouTube user account. */
 				rv = jt_load_token(gui->at);
 				if (rv == JT_OK) {
@@ -3284,9 +3550,8 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					state = GUI_STATE_GET_TOKEN;
 					wakeupcount = sleeptime;
 				} else {
-					/* Retry later */
 					state = GUI_STATE_ERROR;
-					nextstate = GUI_STATE_GET_USER_CODE;
+					nextstate = GUI_STATE_MAIN_MENU;
 
 					/* Remove user code. */
 					if (gui->statusmsg != NULL) {
