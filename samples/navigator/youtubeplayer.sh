@@ -42,11 +42,16 @@ if [ -x "$PROGRAM" ]; then
 		# Use navigator, so that the user can tell which video to play:
 		echo "Starting navigator"
 		if [ "$RETVAL" != "" ]; then
-			"$PROGRAM" -o "$SHAREDIR" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -j "$CHANNELSTART" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID"
+			"$PROGRAM" -o "$SHAREDIR" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -j "$CHANNELSTART" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID" -e "$SELECTEDMENU"
 			RETVAL="$?"
 		else
 			"$PROGRAM" -o "$SHAREDIR" -v "$CFG"
 			RETVAL="$?"
+		fi
+
+		if [ "$RETVAL" = "4" ]; then
+			halt
+			break
 		fi
 
 		if [ "$RETVAL" != "0" -a -e "$CFG" ]; then

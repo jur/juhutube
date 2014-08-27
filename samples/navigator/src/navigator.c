@@ -47,10 +47,11 @@ int main(int argc, char *argv[])
 	const char *sharedir = "/usr/share/ytnavigator";
 	int state = 0;
 	int retval = 0;
+	int menunr = 0;
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:e:")) != -1) {
 		switch(c) {
 			case 'o':
 				/* Prefix for images. */
@@ -110,6 +111,10 @@ int main(int argc, char *argv[])
 				retval = strtol(optarg, NULL, 0);
 				break;
 
+			case 'e':
+				menunr = strtol(optarg, NULL, 0);
+				break;
+
 			default:
 				return 1;
 				break;
@@ -136,7 +141,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* Call the GUI main processing loop. */
-	retval = gui_loop(gui, retval, state, videofile, channelid, playlistid, catpagetoken, videoid, catnr, channelnr, videopagetoken, vidnr);
+	retval = gui_loop(gui, retval, state, videofile, channelid, playlistid, catpagetoken, videoid, catnr, channelnr, videopagetoken, vidnr, menunr);
 
 	gui_free(gui);
 	gui = NULL;

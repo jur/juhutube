@@ -103,6 +103,8 @@ enum gui_state {
 	GUI_STATE_PLAY_VIDEO,
 	GUI_STATE_PLAY_PREV_VIDEO,
 	GUI_STATE_WAIT_FOR_CONTINUE,
+	GUI_STATE_MAIN_MENU,
+	GUI_STATE_POWER_OFF,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -133,6 +135,8 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_PLAY_VIDEO)
 		CASESTATE(GUI_STATE_PLAY_PREV_VIDEO)
 		CASESTATE(GUI_STATE_WAIT_FOR_CONTINUE)
+		CASESTATE(GUI_STATE_MAIN_MENU)
+		CASESTATE(GUI_STATE_POWER_OFF)
 	}
 	return "unknown";
 }
@@ -225,6 +229,25 @@ struct gui_cat_s {
 	int vidnr;
 };
 
+typedef struct gui_menu_entry_s gui_menu_entry_t;
+
+/** Menu entry fro main menu. */
+struct gui_menu_entry_s {
+	/** Displayed title for menu. */
+	char *title;
+	/** Image containing the text shown. */
+	SDL_Surface *textimg;
+	/** Selecting the menu entry causes the following state. */
+	enum gui_state state;
+	/** Menu entry number. */
+	int nr;
+
+	/** Next menu entry. */
+	gui_menu_entry_t *next;
+	/** Previous menu entry. */
+	gui_menu_entry_t *prev;
+};
+
 struct gui_s {
 	/** Path to resources like images. */
 	const char *sharedir;
@@ -288,6 +311,11 @@ struct gui_s {
 
 	/** SDL Joystick handle. */
 	SDL_Joystick *joystick;
+
+	/** Main menu. */
+	gui_menu_entry_t *mainmenu;
+	/** Selected menu entry. */
+	gui_menu_entry_t *selectedmenu;
 };
 
 /**
@@ -577,6 +605,101 @@ static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 	}
 }
 
+static gui_menu_entry_t *gui_menu_entry_alloc(gui_t *gui, gui_menu_entry_t **listhead, gui_menu_entry_t *where, const char *title, enum gui_state state)
+{
+	gui_menu_entry_t *rv;
+	static int nr = 0;
+
+	rv = malloc(sizeof(*rv));
+	if (rv == NULL) {
+		return NULL;
+	}
+	memset(rv, 0, sizeof(*rv));
+	nr++;
+	rv->nr = nr;
+
+	if (listhead == &gui->mainmenu) {
+		if (gui->selectedmenu == NULL) {
+			gui->selectedmenu = rv;
+		}
+	}
+	if ((where == NULL) || (listhead != &gui->mainmenu)) {
+		if (*listhead == NULL) {
+			/* First one inserted in list. */
+			rv->next = rv;
+			rv->prev = rv;
+			*listhead = rv;
+		} else {
+			gui_menu_entry_t *last;
+
+			/* Insert after last in list. */
+			last = (*listhead)->prev;
+	
+			rv->next = last->next;
+			rv->prev = last;
+
+			rv->next->prev = rv;
+			last->next = rv;
+		}
+	} else {
+		/* Insert after where. */
+		rv->next = where->next;
+		rv->prev = where;
+
+		rv->next->prev = rv;
+		where->next = rv;
+	}
+	if (title != NULL) {
+		rv->title = strdup(title);
+	}
+	rv->state = state;
+	return rv;
+}
+
+static void gui_menu_entry_free(gui_t *gui, gui_menu_entry_t *entry)
+{
+	if (entry != NULL) {
+		if (entry->next == entry) {
+			entry->next = NULL;
+		}
+		if (entry->prev == entry) {
+			entry->prev = NULL;
+		}
+
+		/* Check if entry is at the top of the list. */
+		if (gui->mainmenu == entry) {
+			gui->mainmenu = entry->next;
+		}
+
+		/* Check if entry is at the top of the list. */
+		if (gui->selectedmenu == entry) {
+			gui->selectedmenu = entry->next;
+		}
+
+		/* Remove from list. */
+		if (entry->next != NULL) {
+			entry->next->prev = entry->prev;
+		}
+		if (entry->prev != NULL) {
+			entry->prev->next = entry->next;
+		}
+		entry->prev = NULL;
+		entry->next = NULL;
+
+		if (entry->title != NULL) {
+			free(entry->title);
+			entry->title = NULL;
+		}
+		if (entry->textimg != NULL) {
+			SDL_FreeSurface(entry->textimg);
+			entry->textimg = NULL;
+		}
+		free(entry);
+		entry = NULL;
+	}
+}
+
+
 /** Initialize graphic. */
 gui_t *gui_alloc(const char *sharedir)
 {
@@ -730,6 +853,9 @@ gui_t *gui_alloc(const char *sharedir)
 
 	gui->description_status = 0;
 
+	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_LOAD_ACCESS_TOKEN);
+	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF);
+
 	return gui;
 }
 
@@ -739,6 +865,8 @@ void gui_free(gui_t *gui)
 	if (gui != NULL) {
 		gui_cat_t *cat;
 		gui_cat_t *next;
+		gui_menu_entry_t *menu;
+		gui_menu_entry_t *mnext;
 
 		/* Was allocated as part of the list gui->categories. */
 		gui->current = NULL;
@@ -782,6 +910,20 @@ void gui_free(gui_t *gui)
 			gui_cat_free(gui, cat);
 			cat = NULL;
 			cat = next;
+		}
+
+		menu = gui->mainmenu;
+		gui->mainmenu = NULL;
+		gui->selectedmenu = NULL;
+		while(menu != NULL) {
+			mnext = menu->next;
+			if (menu == menu->prev) {
+				/* This is the last one, there is no next. */
+				mnext = NULL;
+			}
+			gui_menu_entry_free(gui, menu);
+			menu = NULL;
+			menu = mnext;
 		}
 
 		if (gui->joystick != NULL) {
@@ -1129,6 +1271,38 @@ static void gui_paint_cat_view(gui_t *gui)
 	}
 }
 
+static void gui_paint_main_view(gui_t *gui)
+{
+	SDL_Rect rcDest = { BORDER_X /* X pos */, 90 /* Y pos */, 0, 0 };
+	gui_menu_entry_t *entry;
+
+	entry = gui->selectedmenu;
+	while(entry != NULL) {
+		if ((entry->textimg == NULL) && (entry->title != NULL)) {
+			entry->textimg = gui_printf(gui->font, entry->textimg, entry->title);
+		}
+		if (entry->textimg != NULL) {
+			int maxHeight;
+			SDL_Surface *image;
+
+			image = entry->textimg;
+			maxHeight = image->h;
+
+			if ((gui->description_pos - gui->mindistance) >= (rcDest.y + image->h)) {
+				SDL_BlitSurface(image, NULL, gui->screen, &rcDest);
+				rcDest.x = BORDER_X;
+				rcDest.y += maxHeight + BORDER_Y;
+			}
+		}
+
+		/* Get next menu entry. */
+		entry = entry->next;
+		if (entry == gui->mainmenu) {
+			break;
+		}
+	}
+}
+
 static void gui_paint_status(gui_t *gui)
 {
 	const char *text;
@@ -1205,7 +1379,7 @@ static void gui_paint_nav(gui_t *gui)
 /**
  * Paint GUI.
  */
-static void gui_paint(gui_t *gui)
+static void gui_paint(gui_t *gui, enum gui_state state)
 {
 	SDL_FillRect(gui->screen, NULL, 0x000000);
 
@@ -1215,7 +1389,11 @@ static void gui_paint(gui_t *gui)
 	if (gui->statusmsg != NULL) {
 		gui_paint_status(gui);
 	} else {
-		gui_paint_cat_view(gui);
+		if (state == GUI_STATE_MAIN_MENU) {
+			gui_paint_main_view(gui);
+		} else {
+			gui_paint_cat_view(gui);
+		}
 	}
 
 	/* Update the screen content. */
@@ -2337,6 +2515,11 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			int vidnr = 0;
 			const char *catPageToken;
 
+			if (gui->selectedmenu != NULL) {
+				fprintf(fout, "SELECTEDMENU=\"%d\"\n", gui->selectedmenu->nr);
+			} else {
+				fprintf(fout, "SELECTEDMENU=\"0\"\n");
+			}
 			fprintf(fout, "VIDEOID=\"%s\"\n", elem->videoid);
 			if (cat->playlistid != NULL) {
 				fprintf(fout, "PLAYLISTID=\"%s\"\n", cat->playlistid);
@@ -2475,8 +2658,8 @@ static void set_description_for_subscriptions(gui_t *gui)
 {
 	if (gui->description_status != 1) {
 		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Play playlist");
-		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Show playlist");
-		gui->square_text = gui_printf(gui->descfont, gui->square_text, "Play video");
+		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Main menu");
+		gui->square_text = gui_printf(gui->descfont, gui->square_text, "Show playlist");
 		gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Play playlist backwards");
 
 		gui->description_status = 1;
@@ -2488,7 +2671,6 @@ static void set_description_for_playlist(gui_t *gui)
 	if (gui->description_status != 2) {
 		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Play playlist");
 		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Back");
-		gui->square_text = gui_printf(gui->descfont, gui->square_text, "Play video");
 		gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Play playlist backwards");
 		gui->description_status = 2;
 	}
@@ -2524,11 +2706,20 @@ static void set_description_continue(gui_t *gui)
 	}
 }
 
+static void set_description_select(gui_t *gui)
+{
+	if (gui->description_status != 3) {
+		set_no_description(gui);
+		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Select");
+		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Quit to shell");
+		gui->description_status = 3;
+	}
+}
 
 /**
  * Main loop for GUI.
  */
-int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr)
+int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr, int menunr)
 {
 	int done;
 	SDL_Event event;
@@ -2605,11 +2796,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				case SDL_JOYBUTTONDOWN:
 					switch(event.jbutton.button) {
 						case 0: /* Square */
-
-							/* Play single video */
-							key = SDLK_RETURN;
+							key = SDLK_s;
 							break;
 						case 9: /* Start */
+							key = SDLK_RETURN;
+							break;
 						case 1: /* Cross */
 							/* Play playlist */
 							key = SDLK_SPACE;
@@ -2619,9 +2810,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							key = SDLK_r;
 							break;
 						case 8: /* Select */
+							key = SDLK_a;
+							break;
 						case 3: /* Circle */
 							/* Select playllist */
-							key = SDLK_p;
+							key = SDLK_ESCAPE;
 							break;
 						case 4: /* L1 */
 							key = SDLK_HOME;
@@ -2648,6 +2841,17 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 						case SDLK_SPACE:
 							if (state == GUI_STATE_WAIT_FOR_CONTINUE) {
 								state = GUI_RESET_STATE;
+								break;
+							}
+							if (curstate == GUI_STATE_MAIN_MENU) {
+								gui_menu_entry_t *entry;
+
+								entry = gui->selectedmenu;
+								if (entry != NULL) {
+									set_no_description(gui);
+									state = entry->state;
+								}
+								break;
 							}
 						case SDLK_r:
 						case SDLK_RETURN: {
@@ -2693,7 +2897,33 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							break;
 						}
 
-						case SDLK_p: {
+						case SDLK_s: {
+							if (curstate == GUI_STATE_RUNNING) {
+								if (gui->statusmsg == NULL) {
+									if (gui->current != NULL) {
+										lastcatpagetoken = NULL;
+										set_no_description(gui);
+										if (gui->prev_cat == NULL) {
+											/* Show playlists of channel. */
+											gui->cur_cat = gui->current;
+											gui->prev_cat = gui->current;
+											state = GUI_STATE_GET_CHANNEL_PLAYLIST;
+											switch (gui->cur_cat->nextPageState) {
+												case GUI_STATE_GET_MY_CHANNELS:
+												case GUI_STATE_GET_FAVORITES:
+													update_channelid_of_video(gui, gui->cur_cat->current);
+													break;
+												default:
+													break;
+											}
+										}
+									}
+								}
+							}
+							break;
+						}
+
+						case SDLK_ESCAPE: {
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->statusmsg == NULL) {
 									if (gui->current != NULL) {
@@ -2724,26 +2954,22 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 												}
 											}
 										} else {
-											/* Show playlists of channel. */
-											gui->cur_cat = gui->current;
-											gui->prev_cat = gui->current;
-											state = GUI_STATE_GET_CHANNEL_PLAYLIST;
-											switch (gui->cur_cat->nextPageState) {
-												case GUI_STATE_GET_MY_CHANNELS:
-												case GUI_STATE_GET_FAVORITES:
-													update_channelid_of_video(gui, gui->cur_cat->current);
-													break;
-												default:
-													break;
-											}
+											/* Back to main menu. */
+											state = GUI_STATE_MAIN_MENU;
 										}
 									}
 								}
 							}
+							if (curstate == GUI_STATE_MAIN_MENU) {
+								set_no_description(gui);
+
+								/* Quit */
+								done = 1;
+								retval = 0;
+							}
 							break;
 						}
 
-						case SDLK_ESCAPE:
 						case SDLK_q:
 							set_no_description(gui);
 							/* Quit */
@@ -2828,6 +3054,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							break;
 
 						case SDLK_UP:
+							if (curstate == GUI_STATE_MAIN_MENU) {
+								if (gui->selectedmenu != NULL) {
+									gui->selectedmenu = gui->selectedmenu->prev;
+								}
+							}
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->categories != NULL) {
 									gui_cat_t *cat;
@@ -2861,6 +3092,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 							break;
 
 						case SDLK_DOWN:
+							if (curstate == GUI_STATE_MAIN_MENU) {
+								if (gui->selectedmenu != NULL) {
+									gui->selectedmenu = gui->selectedmenu->next;
+								}
+							}
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->categories != NULL) {
 									gui_cat_t *cat;
@@ -3003,7 +3239,25 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				break;
 
 			case GUI_STATE_STARTUP:
-				state = GUI_STATE_LOAD_ACCESS_TOKEN;
+				state = GUI_STATE_MAIN_MENU;
+				if (gui->selectedmenu != NULL) {
+					if (menunr != 0) {
+						do {
+							if (gui->selectedmenu->nr == menunr) {
+								break;
+							}
+							gui->selectedmenu = gui->selectedmenu->next;
+						} while (gui->selectedmenu != gui->mainmenu);
+						if (gui->selectedmenu->nr == menunr) {
+							state = gui->selectedmenu->state;
+						}
+						menunr = 0;
+					}
+				}
+				break;
+
+			case GUI_STATE_MAIN_MENU:
+				set_description_select(gui);
 				break;
 
 			case GUI_STATE_LOAD_ACCESS_TOKEN:
@@ -3656,6 +3910,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				wakeupcount = DEFAULT_SLEEP;
 				state = GUI_STATE_RUNNING;
 				break;
+
+			case GUI_STATE_POWER_OFF:
+				done = 1;
+				retval = 4;
+				break;
 		}
 
 		if (state == GUI_STATE_RUNNING) {
@@ -3671,7 +3930,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 		}
 
 		/* Paint GUI elements. */
-		gui_paint(gui);
+		gui_paint(gui, state);
 	}
 	return retval;
 }
