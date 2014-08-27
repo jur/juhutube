@@ -44,13 +44,18 @@ int main(int argc, char *argv[])
 	const char *playlistid = NULL;
 	const char *channelid = NULL;
 	const char *videopagetoken = NULL;
+	const char *sharedir = "/usr/share/ytnavigator";
 	int state = 0;
 	int retval = 0;
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:")) != -1) {
 		switch(c) {
+			case 'o':
+				/* Prefix for images. */
+				sharedir = optarg;
+				break;
 			case 'l':
 				/* Write log messages to a file. */
 				logfile = optarg;
@@ -124,7 +129,7 @@ int main(int argc, char *argv[])
 
 	transfer_init();
 
-	gui = gui_alloc();
+	gui = gui_alloc(sharedir);
 	if (gui == NULL) {
 		LOG_ERROR("Failed to intialize GUI.\n");
 		return -2;

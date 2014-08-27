@@ -8,7 +8,7 @@ DEPDIR = dep-$(MACHINE)
 BINDIR = bin-$(MACHINE)
 TESTDIR = test-$(MACHINE)
 PICTURES = yt_powered
-MODS = navigator log transfer gui $(PICTURES)
+MODS = navigator log transfer gui
 OBJS = $(addprefix $(OBJDIR)/,$(addsuffix .o,$(MODS)))
 DEPS = $(addprefix $(DEPDIR)/,$(addsuffix .d,$(MODS)))
 
@@ -26,15 +26,17 @@ BFDARCH = $(shell LANG=C $(OBJDUMP) --help | grep -e "supported architectures:" 
 ifeq ($(BUILDROOT_MACHINE),)
 test: all
 	mkdir -p $(TESTDIR)
-	(cd $(TESTDIR) && bash -x ../youtubeplayer.sh ../$(PROGRAM))
+	(cd $(TESTDIR) && bash -x ../youtubeplayer.sh ../$(PROGRAM) ../pictures)
 endif
 
 all: $(PROGRAM)
 
 install: all
 	install -D $(PROGRAM) "$(CHROOTDIR)$(PREFIX)/bin/"
-	sed -i youtubeplayer.sh -e "s#DEFAULTPROGRAM=.*\$$#DEFAULTPROGRAM=\"$(PREFIX)/bin/ytnavigator\"#g"
+	sed -i youtubeplayer.sh -e "s#DEFAULTPREFIX=.*\$$#DEFAULTPREFIX=\"$(PREFIX)\"#g"
 	install -D youtubeplayer.sh "$(CHROOTDIR)$(PREFIX)/bin/"
+	mkdir -p "$(CHROOTDIR)$(PREFIX)/share/ytnavigator"
+	install -D pictures/*.jpg "$(CHROOTDIR)$(PREFIX)/share/ytnavigator/"
 
 $(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
 	@mkdir -p $(BINDIR)

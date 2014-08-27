@@ -102,6 +102,7 @@ enum gui_state {
 	GUI_STATE_RUNNING,
 	GUI_STATE_PLAY_VIDEO,
 	GUI_STATE_PLAY_PREV_VIDEO,
+	GUI_STATE_WAIT_FOR_CONTINUE,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -131,6 +132,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_RUNNING)
 		CASESTATE(GUI_STATE_PLAY_VIDEO)
 		CASESTATE(GUI_STATE_PLAY_PREV_VIDEO)
+		CASESTATE(GUI_STATE_WAIT_FOR_CONTINUE)
 	}
 	return "unknown";
 }
@@ -224,16 +226,31 @@ struct gui_cat_s {
 };
 
 struct gui_s {
+	/** Path to resources like images. */
+	const char *sharedir;
 	/** YouTube logo. */
 	SDL_Surface *logo;
+	SDL_Surface *cross;
+	SDL_Surface *cross_text;
+	SDL_Surface *circle;
+	SDL_Surface *circle_text;
+	SDL_Surface *triangle;
+	SDL_Surface *triangle_text;
+	SDL_Surface *square;
+	SDL_Surface *square_text;
+	int description_status;
 	/** Output screen */
 	SDL_Surface *screen;
 	/** Position of YouTube logo on screen. */
 	SDL_Rect logorect;
+	/** Position of description. */
+	int description_pos;
 	/** Pointer to font used to write something on the screen. */
 	TTF_Font *font;
 	/** Pointer to small font used to write something on the screen. */
 	TTF_Font *smallfont;
+	/** Pointer to font used to write description of buttons. */
+	TTF_Font *descfont;
 
 	/** The height of the letters in the youtube logo. */
 	int mindistance;
@@ -298,11 +315,26 @@ static char *buf_printf(char *buffer, const char *format, ...)
 }
 
 /** Load YouTube logo. */
-static SDL_Surface *get_youtube_logo(void)
+static SDL_Surface *gui_get_image(gui_t *gui, const char *file)
 {
-	SDL_RWops *rw = SDL_RWFromMem(&_binary_pictures_yt_powered_jpg_start, (long) &_binary_pictures_yt_powered_jpg_size);
+	int ret;
+	char *filename = NULL;
+	SDL_Surface *rv;
 
-	return IMG_Load_RW(rw, 1);
+	ret = asprintf(&filename, "%s/%s", gui->sharedir, file);
+	if (ret == -1) {
+		return NULL;
+	}
+
+	rv = IMG_Load(filename);
+
+	if (rv == NULL) {
+		LOG_ERROR("Failed to load \"%s\".\n", filename);
+	}
+	free(filename);
+	filename = NULL;
+
+	return rv;
 }
 
 static gui_cat_t *gui_cat_alloc(gui_t *gui, gui_cat_t **listhead, gui_cat_t *where)
@@ -546,7 +578,7 @@ static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 }
 
 /** Initialize graphic. */
-gui_t *gui_alloc(void)
+gui_t *gui_alloc(const char *sharedir)
 {
 	gui_t *gui;
 	const char *home;
@@ -565,6 +597,7 @@ gui_t *gui_alloc(void)
 	}
 	memset(gui, 0 , sizeof(*gui));
 	gui->mindistance = 34;
+	gui->sharedir = sharedir;
 
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) < 0) {
 		LOG_ERROR("Couldn't initialize SDL: %s\n", SDL_GetError());
@@ -575,7 +608,7 @@ gui_t *gui_alloc(void)
 
 	TTF_Init();
 
-	gui->logo = get_youtube_logo();
+	gui->logo = gui_get_image(gui, "yt_powered.jpg");
 	if (gui->logo == NULL) {
 		LOG_ERROR("Failed to load youtube logo.\n");
 		gui_free(gui);
@@ -608,6 +641,23 @@ gui_t *gui_alloc(void)
 
 	gui->logorect.x = gui->screen->w - gui->logo->w - gui->mindistance;
 	gui->logorect.y = gui->screen->h - gui->logo->h - gui->mindistance;
+	/* Put description of buttons to the same y position as the logo. */
+	gui->description_pos = gui->logorect.y;
+
+	if (gui->screen->w > 800) {
+		gui->cross = gui_get_image(gui, "cross.jpg");
+		gui->circle = gui_get_image(gui, "circle.jpg");
+		gui->triangle = gui_get_image(gui, "triangle.jpg");
+		gui->square = gui_get_image(gui, "square.jpg");
+		gui->descfont = gui->font;
+	} else {
+		gui->cross = gui_get_image(gui, "cross_small.jpg");
+		gui->circle = gui_get_image(gui, "circle_small.jpg");
+		gui->triangle = gui_get_image(gui, "triangle_small.jpg");
+		gui->square = gui_get_image(gui, "square_small.jpg");
+		gui->descfont = gui->smallfont;
+	}
+
 
 	atexit(SDL_Quit);
 	atexit(TTF_Quit);
@@ -677,6 +727,8 @@ gui_t *gui_alloc(void)
 		gui->joystick = SDL_JoystickOpen(0);
 		SDL_JoystickEventState(SDL_ENABLE);
 	}
+
+	gui->description_status = 0;
 
 	return gui;
 }
@@ -749,6 +801,7 @@ void gui_free(gui_t *gui)
 			transfer_free(gui->transfer);
 			gui->transfer = NULL;
 		}
+		gui->descfont = NULL;
 		if (gui->smallfont != NULL) {
 			TTF_CloseFont(gui->smallfont);
 			gui->smallfont = NULL;
@@ -760,6 +813,42 @@ void gui_free(gui_t *gui)
 		if (gui->logo != NULL) {
 			SDL_FreeSurface(gui->logo);
 			gui->logo = NULL;
+		}
+		if (gui->cross != NULL) {
+			SDL_FreeSurface(gui->cross);
+			gui->cross = NULL;
+		}
+		if (gui->circle != NULL) {
+			SDL_FreeSurface(gui->circle);
+			gui->circle = NULL;
+		}
+		if (gui->square != NULL) {
+			SDL_FreeSurface(gui->square);
+			gui->square = NULL;
+		}
+		if (gui->triangle != NULL) {
+			SDL_FreeSurface(gui->triangle);
+			gui->triangle = NULL;
+		}
+		if (gui->screen != NULL) {
+			SDL_FreeSurface(gui->screen);
+			gui->screen = NULL;
+		}
+		if (gui->cross_text != NULL) {
+			SDL_FreeSurface(gui->cross_text);
+			gui->cross_text = NULL;
+		}
+		if (gui->circle_text != NULL) {
+			SDL_FreeSurface(gui->circle_text);
+			gui->circle_text = NULL;
+		}
+		if (gui->square_text != NULL) {
+			SDL_FreeSurface(gui->square_text);
+			gui->square_text = NULL;
+		}
+		if (gui->triangle_text != NULL) {
+			SDL_FreeSurface(gui->triangle_text);
+			gui->triangle_text = NULL;
 		}
 		if (gui->screen != NULL) {
 			SDL_FreeSurface(gui->screen);
@@ -932,6 +1021,10 @@ static void gui_paint_cat_view(gui_t *gui)
 					&& ((gui->logorect.y + gui->logo->h + gui->mindistance) > rcDest.y)) {
 					overlap_y = 1;
 				}
+				if ((gui->description_pos - gui->mindistance) < (rcDest.y + image->h)) {
+					overlap_y = 1;
+					overlap_x = 1;
+				}
 				if (!overlap_x || !overlap_y) {
 					/* Show video title for first/selected video. */
 					SDL_Surface *sText = NULL;
@@ -1075,6 +1168,40 @@ static void gui_paint_status(gui_t *gui)
 		text++;
 	}
 }
+
+static void gui_paint_pic_text(gui_t *gui, SDL_Rect *rect, SDL_Surface *image, SDL_Surface *text)
+{
+	if ((image != NULL) && (text != NULL)) {
+		if ((gui->logorect.y + gui->logo->h + gui->mindistance) > rect->y) {
+			if ((gui->logorect.x - gui->mindistance) < (rect->x + image->w + 10 + text->w)) {
+				rect->y += text->h + 10;
+				rect->x = gui->mindistance;
+			}
+		}
+		rect->y += (text->h - image->h) / 2;
+		SDL_BlitSurface(image, NULL, gui->screen, rect);
+		rect->y -= (text->h - image->h) / 2;
+		rect->x += image->w + 10;
+		SDL_BlitSurface(text, NULL, gui->screen, rect);
+		rect->x += text->w + gui->mindistance;
+	}
+}
+
+static void gui_paint_nav(gui_t *gui)
+{
+	SDL_Rect rect;
+
+	memset(&rect, 0, sizeof(rect));
+
+	rect.x = gui->mindistance;
+	rect.y = gui->description_pos;
+
+	gui_paint_pic_text(gui, &rect, gui->cross, gui->cross_text);
+	gui_paint_pic_text(gui, &rect, gui->circle, gui->circle_text);
+	gui_paint_pic_text(gui, &rect, gui->triangle, gui->triangle_text);
+	gui_paint_pic_text(gui, &rect, gui->square, gui->square_text);
+}
+
 /**
  * Paint GUI.
  */
@@ -1083,6 +1210,7 @@ static void gui_paint(gui_t *gui)
 	SDL_FillRect(gui->screen, NULL, 0x000000);
 
 	SDL_BlitSurface(gui->logo, NULL, gui->screen, &gui->logorect);
+	gui_paint_nav(gui);
 
 	if (gui->statusmsg != NULL) {
 		gui_paint_status(gui);
@@ -2289,6 +2417,8 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 						i++;
 					}
 					fprintf(fout, "VIDEOTITLE='%s'\n", title);
+					free(title);
+					title = NULL;
 				} else {
 					fprintf(fout, "VIDEOTITLE=''\n");
 				}
@@ -2338,6 +2468,59 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 		}
 	} else {
 		printf("Category is NULL.\n");
+	}
+}
+
+static void set_description_for_subscriptions(gui_t *gui)
+{
+	if (gui->description_status != 1) {
+		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Play playlist");
+		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Show playlist");
+		gui->square_text = gui_printf(gui->descfont, gui->square_text, "Play video");
+		gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Play playlist backwards");
+
+		gui->description_status = 1;
+	}
+}
+
+static void set_description_for_playlist(gui_t *gui)
+{
+	if (gui->description_status != 2) {
+		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Play playlist");
+		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Back");
+		gui->square_text = gui_printf(gui->descfont, gui->square_text, "Play video");
+		gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Play playlist backwards");
+		gui->description_status = 2;
+	}
+}
+
+static void set_no_description(gui_t *gui)
+{
+	if (gui->cross_text != NULL) {
+		SDL_FreeSurface(gui->cross_text);
+		gui->cross_text = NULL;
+	}
+	if (gui->circle_text != NULL) {
+		SDL_FreeSurface(gui->circle_text);
+		gui->circle_text = NULL;
+	}
+	if (gui->square_text != NULL) {
+		SDL_FreeSurface(gui->square_text);
+		gui->square_text = NULL;
+	}
+	if (gui->triangle_text != NULL) {
+		SDL_FreeSurface(gui->triangle_text);
+		gui->triangle_text = NULL;
+	}
+	gui->description_status = 0;
+}
+
+static void set_description_continue(gui_t *gui)
+{
+	if (gui->description_status != 3) {
+		set_no_description(gui);
+		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Continue");
+		gui->description_status = 3;
 	}
 }
 
@@ -2463,39 +2646,46 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					/* Key pressed on keyboard. */
 					switch(key) {
 						case SDLK_SPACE:
+							if (state == GUI_STATE_WAIT_FOR_CONTINUE) {
+								state = GUI_RESET_STATE;
+							}
 						case SDLK_r:
 						case SDLK_RETURN: {
-							gui_cat_t *cat;
+							if (curstate == GUI_STATE_RUNNING) {
+								gui_cat_t *cat;
 
-							cat = gui->current;
-							if (cat) {
-								gui_elem_t *elem;
+								cat = gui->current;
+								if (cat) {
+									gui_elem_t *elem;
 
-								elem = cat->current;
-								if (elem != NULL) {
-									if (elem->videoid != NULL) {
-										int ret = 1;
+									elem = cat->current;
+									if (elem != NULL) {
+										if (elem->videoid != NULL) {
+											int ret = 1;
 
-										ret = playVideo(gui, videofile, cat, elem, 0, 4096, lastcatpagetoken);
-										if ((videofile != NULL) && (ret == 0)) {
-											/* Terminate program, another program needs to use the videofile
-											 * to play the video.
-											 */
-											done = 1;
-										}
-										if (ret == 0) {
-											if (key == SDLK_RETURN) {
-												/* Play current video only. */
-												retval = 1;
-											} else if (key == SDLK_SPACE) {
-												/* Play playlist. */
-												retval = 2;
-											} else {
-												/* Play playlist backward. */
-												retval = 3;
+											set_no_description(gui);
+
+											ret = playVideo(gui, videofile, cat, elem, 0, 4096, lastcatpagetoken);
+											if ((videofile != NULL) && (ret == 0)) {
+												/* Terminate program, another program needs to use the videofile
+												 * to play the video.
+												 */
+												done = 1;
 											}
-										} else {
-											retval = 0;
+											if (ret == 0) {
+												if (key == SDLK_RETURN) {
+													/* Play current video only. */
+													retval = 1;
+												} else if (key == SDLK_SPACE) {
+													/* Play playlist. */
+													retval = 2;
+												} else {
+													/* Play playlist backward. */
+													retval = 3;
+												}
+											} else {
+												retval = 0;
+											}
 										}
 									}
 								}
@@ -2508,6 +2698,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 								if (gui->statusmsg == NULL) {
 									if (gui->current != NULL) {
 										lastcatpagetoken = NULL;
+										set_no_description(gui);
 										if (gui->prev_cat != NULL) {
 											/* Back to previous view from playlist view. */
 											gui_cat_t *cat;
@@ -2554,6 +2745,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 						case SDLK_ESCAPE:
 						case SDLK_q:
+							set_no_description(gui);
 							/* Quit */
 							done = 1;
 							retval = 0;
@@ -2803,6 +2995,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 		curstate = (wakeupcount <= 0) ? state : GUI_STATE_SLEEP;
 		switch(curstate) {
 			case GUI_STATE_SLEEP:
+				set_no_description(gui);
+				break;
+
+			case GUI_STATE_WAIT_FOR_CONTINUE:
+				set_description_continue(gui);
 				break;
 
 			case GUI_STATE_STARTUP:
@@ -2881,11 +3078,12 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 
 			case GUI_STATE_LOGGED_IN:
 				/* Now logged into user account. */
-				gui->statusmsg = buf_printf(gui->statusmsg, "Logged in");
+				gui->statusmsg = buf_printf(gui->statusmsg, "Account found");
 				state = GUI_STATE_INIT;
 				break;
 
 			case GUI_RESET_STATE:
+				set_no_description(gui);
 				state = nextstate;
 				if (gui->statusmsg != NULL) {
 					free(gui->statusmsg);
@@ -2906,7 +3104,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				rv = update_favorites(gui, gui->cur_cat, 0);
 				if (rv != JT_OK) {
 					state = GUI_STATE_ERROR;
-					wakeupcount = DEFAULT_SLEEP;
 					if ((gui->categories == NULL) || (gui->categories->prev == NULL) || (gui->categories->prev->nextPageState == GUI_STATE_GET_FAVORITES)) {
 						/* First time running, need also to get the subscriptions. */
 						if (gui->get_playlist_cat != NULL) {
@@ -2934,7 +3131,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				rv = update_my_channels(gui, gui->cur_cat, playlistid, videopagetoken);
 				if (rv != JT_OK) {
 					state = GUI_STATE_ERROR;
-					wakeupcount = DEFAULT_SLEEP;
 					if ((gui->categories == NULL) || (gui->categories->prev == NULL) || (gui->categories->prev->nextPageState == GUI_STATE_GET_FAVORITES)) {
 						/* First time running, need also to get the subscriptions. */
 						if (gui->get_playlist_cat != NULL) {
@@ -2957,7 +3153,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				rv = update_favorites(gui, gui->cur_cat, 1);
 				if (rv != JT_OK) {
 					state = GUI_STATE_ERROR;
-					wakeupcount = DEFAULT_SLEEP;
 					nextstate = GUI_STATE_RUNNING;
 				} else {
 					state = GUI_STATE_GET_PLAYLIST;
@@ -3062,7 +3257,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 						} else {
 							nextstate = state;
 							state = GUI_STATE_ERROR;
-							wakeupcount = DEFAULT_SLEEP;
 							if (gui->get_playlist_cat == NULL) {
 								nextstate = afterplayliststate;
 							}
@@ -3113,7 +3307,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
 					state = GUI_STATE_ERROR;
-					wakeupcount = DEFAULT_SLEEP;
 					nextstate = GUI_STATE_RUNNING;
 				}
 				gui->cur_cat = NULL;
@@ -3126,7 +3319,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					state = GUI_STATE_GET_CHANNELS;
 				} else {
 					state = GUI_STATE_ERROR;
-					wakeupcount = DEFAULT_SLEEP;
 					nextstate = GUI_STATE_RUNNING;
 				}
 				gui->cur_cat = NULL;
@@ -3200,7 +3392,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					} else {
 						nextstate = state;
 						state = GUI_STATE_ERROR;
-						wakeupcount = DEFAULT_SLEEP;
 						if (gui->get_channel_cat == NULL) {
 							nextstate = GUI_STATE_RUNNING;
 						}
@@ -3245,7 +3436,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				} else {
 					nextstate = GUI_STATE_RUNNING;
 					state = GUI_STATE_ERROR;
-					wakeupcount = DEFAULT_SLEEP;
 				}
 				if (gui->prev_cat != NULL) {
 					if ((gui->current == NULL) || (gui->current->nextPageState != GUI_STATE_GET_CHANNEL_PLAYLIST)) {
@@ -3449,10 +3639,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 						LOG_ERROR("Error: %s\n", error);
 						break;
 				}
-
-				/* Retry */
-				wakeupcount = DEFAULT_SLEEP;
-				state = GUI_RESET_STATE;
+				state = GUI_STATE_WAIT_FOR_CONTINUE;
 				break;
 			}
 
@@ -3469,6 +3656,18 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				wakeupcount = DEFAULT_SLEEP;
 				state = GUI_STATE_RUNNING;
 				break;
+		}
+
+		if (state == GUI_STATE_RUNNING) {
+			if (gui->prev_cat != NULL) {
+				set_description_for_playlist(gui);
+			} else {
+				set_description_for_subscriptions(gui);
+			}
+		} else {
+			if (retval != 0) {
+				set_no_description(gui);
+			}
 		}
 
 		/* Paint GUI elements. */

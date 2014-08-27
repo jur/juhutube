@@ -1,6 +1,12 @@
 #!/bin/ash
 #set -x
-DEFAULTPROGRAM="/usr/bin/ytnavigator"
+DEFAULTPREFIX="/usr"
+DEFAULTSHAREDIR="$DEFAULTPREFIX/share/ytnavigator"
+SHAREDIR="$2"
+if [ -z "$SHAREDIR" ]; then
+	SHAREDIR="$DEFAULTSHAREDIR"
+fi
+DEFAULTPROGRAM="$DEFAULTPREFIX/bin/ytnavigator"
 PROGRAM="$1"
 if [ -z "$PROGRAM" ]; then
 	PROGRAM="$DEFAULTPROGRAM"
@@ -36,10 +42,10 @@ if [ -x "$PROGRAM" ]; then
 		# Use navigator, so that the user can tell which video to play:
 		echo "Starting navigator"
 		if [ "$RETVAL" != "" ]; then
-			"$PROGRAM" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -j "$CHANNELSTART" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID"
+			"$PROGRAM" -o "$SHAREDIR" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -j "$CHANNELSTART" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID"
 			RETVAL="$?"
 		else
-			"$PROGRAM" -v "$CFG"
+			"$PROGRAM" -o "$SHAREDIR" -v "$CFG"
 			RETVAL="$?"
 		fi
 
@@ -51,11 +57,15 @@ if [ -x "$PROGRAM" ]; then
 			echo "Selected video $VIDEOTITLE"
 			echo "Getting URL..."
 			URL="$(youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID)"
-			echo "Starting player..."
-			if [ $USE_WGET -ne 0 ]; then
-				curl --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
+			if [ $? -eq 0 ]; then
+				echo "Starting player..."
+				if [ $USE_WGET -ne 0 ]; then
+					curl --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
+				else
+					wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
+				fi
 			else
-				wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
+				echo "Failed to get URL."
 			fi
 			rm "/tmp/ytcookie-${VIDEOID}.txt"
 		else
