@@ -1516,6 +1516,8 @@ static void gui_paint_main_view(gui_t *gui)
 {
 	SDL_Rect rcDest = { BORDER_X /* X pos */, 90 /* Y pos */, 0, 0 };
 	gui_menu_entry_t *entry;
+	static int pos = 0;
+	static int dir = 1;
 
 	entry = gui->selectedmenu;
 	while(entry != NULL) {
@@ -1530,6 +1532,16 @@ static void gui_paint_main_view(gui_t *gui)
 			maxHeight = image->h;
 
 			if ((gui->description_pos - gui->mindistance) >= (rcDest.y + image->h)) {
+				if (entry == gui->selectedmenu) {
+					rcDest.x = BORDER_X + pos;
+					pos += dir;
+					if (pos == 2) {
+						dir = -1;
+					}
+					if (pos == 0) {
+						dir = 1;
+					}
+				}
 				SDL_BlitSurface(image, NULL, gui->screen, &rcDest);
 				rcDest.x = BORDER_X;
 				rcDest.y += maxHeight + BORDER_Y;
