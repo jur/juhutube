@@ -3038,22 +3038,27 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 
 			p = elem;
 			while (p != NULL) {
-				if ((p->nextPageToken != NULL) || (p->prev == cat->elem->prev)) {
+				if (p->prev == cat->elem->prev) {
 					break;
 				}
 				p = p->prev;
+				if (p->nextPageToken != NULL) {
+					break;
+				}
 			}
 			if ((p != NULL) && (p != elem) && (p->nextPageToken != NULL)) {
 				fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->nextPageToken);
 				vidnr = p->subnr + 1;
 			} else {
 				p = elem;
-
 				while (p != NULL) {
-					if ((p->prevPageToken != NULL) || (p->next == cat->elem)) {
+					if (p->next == cat->elem) {
 						break;
 					}
 					p = p->next;
+					if (p->prevPageToken != NULL) {
+						break;
+					}
 				}
 				if ((p != NULL) && (p != elem) && (p->prevPageToken != NULL)) {
 					fprintf(fout, "VIDPAGETOKEN=\"%s\"\n", p->prevPageToken);
