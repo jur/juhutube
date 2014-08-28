@@ -48,10 +48,11 @@ int main(int argc, char *argv[])
 	int state = 0;
 	int retval = 0;
 	int menunr = 0;
+	int fullscreen = 0;
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:e:")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:e:f")) != -1) {
 		switch(c) {
 			case 'o':
 				/* Prefix for images. */
@@ -115,6 +116,10 @@ int main(int argc, char *argv[])
 				menunr = strtol(optarg, NULL, 0);
 				break;
 
+			case 'f':
+				fullscreen = 1;
+				break;
+
 			default:
 				return 1;
 				break;
@@ -134,7 +139,7 @@ int main(int argc, char *argv[])
 
 	transfer_init();
 
-	gui = gui_alloc(sharedir);
+	gui = gui_alloc(sharedir, fullscreen);
 	if (gui == NULL) {
 		LOG_ERROR("Failed to intialize GUI.\n");
 		return -2;

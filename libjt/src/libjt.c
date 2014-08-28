@@ -318,7 +318,7 @@ static void *jt_load_file(jt_access_token_t *at, const char *filename)
 	void *mem = NULL;
 	int eof = 0;
 
-	LOG("%s()\n", __FUNCTION__);
+	LOG("%s() file %s\n", __FUNCTION__, filename);
 
 	fin = fopen(filename, "rb");
 	if (fin != NULL) {
