@@ -16,6 +16,7 @@
 #define TOKEN_FILE ".youtubetoken"
 #define REFRESH_TOKEN_FILE ".refreshtoken"
 #define SECRET_FILE ".client_secret.json"
+#define TITLE_FILE ".accounttitle"
 
 /** Maximum images loaded while painting. */
 #define MAX_LOAD_WHILE_PAINT 1
@@ -731,6 +732,23 @@ static void gui_menu_entry_free(gui_t *gui, gui_menu_entry_t *entry)
 	}
 }
 
+static void save_file(const char *filename, const void *mem, size_t size)
+{
+	FILE *fout;
+
+	LOG("%s() filename %s\n", __FUNCTION__, filename);
+
+	fout = fopen(filename, "wb");
+	if (fout != NULL) {
+		if (fwrite(mem, size, 1, fout) != 1) {
+			LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+		}
+		fclose(fout);
+		fout = NULL;
+	}
+}
+
+
 static void *load_file(const char *filename)
 {
 	FILE *fin;
@@ -784,8 +802,8 @@ static char *check_token(int nr)
 	char *tokenfile = NULL;
 	int ret;
 	void *mem;
-	json_object *jobj;
-	char *accountname;
+	char *accountname = NULL;
+	char *titlefile = NULL;
 
 	home = getenv("HOME");
 	if (home == NULL) {
@@ -811,15 +829,25 @@ static char *check_token(int nr)
 	if (mem == ((void *) -1)) {
 		return NULL;
 	}
-	jobj = json_tokener_parse(mem);
 	free(mem);
 	mem = NULL;
 
-	if ((jobj == NULL) || is_error(jobj)) {
-		return NULL;
+	ret = asprintf(&titlefile, "%s/%s%03d.txt", home, TITLE_FILE, nr);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		mem = NULL;
 	} else {
-		/* TBD: Get better account name. */
-		json_object_put(jobj);
+		mem = load_file(titlefile);
+		free(titlefile);
+		if (mem == ((void *) -1)) {
+			mem = NULL;
+		}
+	}
+	titlefile = NULL;
+
+	if (mem != NULL) {
+		return mem;
+	} else {
 		ret = asprintf(&accountname, "Account %03d", nr);
 		if (ret == -1) {
 			LOG_ERROR("Out of memory\n");
@@ -1033,6 +1061,7 @@ static void delete_token(int nr)
 	const char *home;
 	char *tokenfile = NULL;
 	char *refreshtokenfile = NULL;
+	char *titlefile = NULL;
 	int ret;
 
 	home = getenv("HOME");
@@ -1046,22 +1075,29 @@ static void delete_token(int nr)
 		LOG_ERROR("Out of memory\n");
 		return;
 	}
+	unlink(tokenfile);
+	free(tokenfile);
+	tokenfile = NULL;
 
 	ret = asprintf(&refreshtokenfile, "%s/%s%03d.json", home, REFRESH_TOKEN_FILE, nr);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+	unlink(refreshtokenfile);
+	free(refreshtokenfile);
+	refreshtokenfile = NULL;
+
+	ret = asprintf(&titlefile, "%s/%s%03d.txt", home, TITLE_FILE, nr);
 	if (ret == -1) {
 		free(tokenfile);
 		tokenfile = NULL;
 		LOG_ERROR("Out of memory\n");
 		return;
 	}
-
-	unlink(tokenfile);
-	unlink(refreshtokenfile);
-
-	free(tokenfile);
-	tokenfile = NULL;
-	free(refreshtokenfile);
-	refreshtokenfile = NULL;
+	unlink(titlefile);
+	free(titlefile);
+	titlefile = NULL;
 }
 
 void gui_free_categories(gui_t *gui)
@@ -2495,6 +2531,32 @@ static int update_my_channels(gui_t *gui, gui_cat_t *selected_cat, const char *s
 							if (title != NULL) {
 								char *k = NULL;
 
+								if ((title[0] != 0) && (gui->selectedmenu != NULL)) {
+									const char *home;
+
+									if (gui->selectedmenu->title != NULL) {
+										free(gui->selectedmenu->title);
+										gui->selectedmenu->title = NULL;
+										if (gui->selectedmenu->textimg != NULL) {
+											SDL_FreeSurface(gui->selectedmenu->textimg);
+											gui->selectedmenu->textimg = NULL;
+										}
+									}
+									gui->selectedmenu->title = strdup(title);
+									/* Save account title in file. */
+									home = getenv("HOME");
+									if (home != NULL) {
+										char *titlefile = NULL;
+
+										ret = asprintf(&titlefile, "%s/%s%03d.txt", home, TITLE_FILE, gui->selectedmenu->tokennr);
+										if (ret != -1) {
+											save_file(titlefile, title, strlen(title));
+											free(titlefile);
+										}
+										titlefile = NULL;
+									}
+								}
+
 								k = strdup(key);
 								if (k != NULL) {
 									if (k[0] != 0) {
@@ -3639,7 +3701,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					state = GUI_STATE_GET_TOKEN;
 					wakeupcount = sleeptime;
 				} else {
-					gui_menu_entry_t *entry;
 					state = GUI_STATE_ERROR;
 					nextstate = GUI_STATE_GET_USER_CODE;
 
