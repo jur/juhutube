@@ -15,7 +15,7 @@ echo "Initializing..."
 AGENT="$(youtube-dl --dump-user-agent)"
 which ffplay >/dev/null
 if [ $? -eq 0 ]; then
-	PLAYER="ffplay -autoexit -"
+	PLAYER="ffplay -fs -autoexit -"
 else
 	if [ "$DISPLAY" = "" ]; then
 		PLAYER="mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -"
