@@ -330,8 +330,9 @@ static void *jt_load_file(jt_access_token_t *at, const char *filename)
 			fin = NULL;
 			return NULL;
 		}
+		memset(mem, 0, CHUNK_SIZE);
 		do {
-			rv = fread(mem + pos, 1, CHUNK_SIZE, fin);
+			rv = fread(mem + pos, 1, CHUNK_SIZE - 1, fin);
 			if (rv < 0) {
 				LOG_ERROR("Failed to read file: %s\n", strerror(errno));
 				free(mem);
@@ -346,6 +347,7 @@ static void *jt_load_file(jt_access_token_t *at, const char *filename)
 						LOG_ERROR("out of memory\n");
 						break;
 					}
+					memset(mem + pos, 0, CHUNK_SIZE);
 				}
 			}
 		} while (!eof);
@@ -449,6 +451,9 @@ static json_object *jt_json_sub_get_object_by_path(jt_access_token_t *at, json_o
 #if 0
 		const char *typedscription = NULL;
 #endif
+		if (val == NULL) {
+			continue;
+		}
 
 		type = json_object_get_type(val);
 #if 0
@@ -615,6 +620,13 @@ static const char *jt_json_sub_get_string_by_path(jt_access_token_t *at, json_ob
 
 	json_object_object_foreach(jobj, key, val) {
 		enum json_type type;
+
+		LOG("%s(): key '%s'\n", __FUNCTION__, key);
+		LOG("%s(): val %p\n", __FUNCTION__, val);
+
+		if (val == NULL) {
+			continue;
+		}
 #if 0
 		const char *typedscription = NULL;
 #endif
@@ -664,6 +676,10 @@ static const char *jt_json_sub_get_string_by_path(jt_access_token_t *at, json_ob
 	
 						LOG("%s(): found object\n", __FUNCTION__);
 						sub = json_object_object_get(jobj, key);
+						if ((sub == NULL) || is_error(sub)) {
+							LOG_ERROR("%s(): JSON object not valid.\n", __FUNCTION__);
+							return NULL;
+						}
 	
 						return jt_json_sub_get_string_by_path(at, sub, path);
 					} else {

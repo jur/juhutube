@@ -17,6 +17,7 @@
 #define REFRESH_TOKEN_FILE ".refreshtoken"
 #define SECRET_FILE ".client_secret.json"
 #define TITLE_FILE ".accounttitle"
+#define MENU_STATE_FILE ".menustate"
 
 /** Maximum images loaded while painting. */
 #define MAX_LOAD_WHILE_PAINT 1
@@ -32,6 +33,8 @@
 #define MAX_ACCOUNTS 10
 /** Chunk size for loadinf files. */
 #define CHUNK_SIZE 256
+
+#define BUFFER_SIZE 4096
 
 /* Cache size, defined in the distance of the categories. */
 /** How many categories should preserve the large thumbnails.
@@ -111,6 +114,7 @@ enum gui_state {
 	GUI_STATE_WAIT_FOR_CONTINUE,
 	GUI_STATE_MAIN_MENU,
 	GUI_STATE_POWER_OFF,
+	GUI_STATE_MENU_PLAYLIST,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -144,6 +148,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_WAIT_FOR_CONTINUE)
 		CASESTATE(GUI_STATE_MAIN_MENU)
 		CASESTATE(GUI_STATE_POWER_OFF)
+		CASESTATE(GUI_STATE_MENU_PLAYLIST)
 	}
 	return "unknown";
 }
@@ -246,10 +251,16 @@ struct gui_menu_entry_s {
 	SDL_Surface *textimg;
 	/** Selecting the menu entry causes the following state. */
 	enum gui_state state;
+	/** Selecting the menu entry causes the following state on init. */
+	enum gui_state initstate;
 	/** Menu entry number. */
 	int nr;
 	/** Token number for account. */
 	int tokennr;
+	/** Playlist ID of this entry. */
+	char *playlistid;
+	/** Channel ID of this entry. */
+	char *channelid;
 
 	/** Next menu entry. */
 	gui_menu_entry_t *next;
@@ -634,7 +645,7 @@ static void renumber_menu_entries(gui_menu_entry_t *listhead)
 	}
 }
 
-static gui_menu_entry_t *gui_menu_entry_alloc(gui_t *gui, gui_menu_entry_t **listhead, gui_menu_entry_t *where, const char *title, enum gui_state state)
+static gui_menu_entry_t *gui_menu_entry_alloc(gui_t *gui, gui_menu_entry_t **listhead, gui_menu_entry_t *where, const char *title, enum gui_state state, enum gui_state initstate)
 {
 	gui_menu_entry_t *rv;
 
@@ -676,9 +687,10 @@ static gui_menu_entry_t *gui_menu_entry_alloc(gui_t *gui, gui_menu_entry_t **lis
 		where->next = rv;
 	}
 	if (title != NULL) {
-		rv->title = strdup(title);
+		rv->title = jt_strdup(title);
 	}
 	rv->state = state;
+	rv->initstate = initstate;
 	renumber_menu_entries(*listhead);
 	return rv;
 }
@@ -724,6 +736,14 @@ static void gui_menu_entry_free(gui_t *gui, gui_menu_entry_t *entry)
 		if ((entry->state == GUI_STATE_LOAD_ACCESS_TOKEN) || (entry->state == GUI_STATE_NEW_ACCESS_TOKEN)) {
 			gui->account_allocated[entry->tokennr] = 0;
 		}
+		if (entry->playlistid != NULL) {
+			free(entry->playlistid);
+			entry->playlistid = NULL;
+		}
+		if (entry->channelid != NULL) {
+			free(entry->channelid);
+			entry->channelid = NULL;
+		}
 
 		free(entry);
 		entry = NULL;
@@ -768,8 +788,9 @@ static void *load_file(const char *filename)
 			fin = NULL;
 			return NULL;
 		}
+		memset(mem, 0, CHUNK_SIZE);
 		do {
-			rv = fread(mem + pos, 1, CHUNK_SIZE, fin);
+			rv = fread(mem + pos, 1, CHUNK_SIZE - 1, fin);
 			if (rv < 0) {
 				LOG_ERROR("Failed to read file: %s\n", strerror(errno));
 				free(mem);
@@ -784,6 +805,7 @@ static void *load_file(const char *filename)
 						LOG_ERROR("out of memory\n");
 						break;
 					}
+					memset(mem + pos, 0, CHUNK_SIZE);
 				}
 			}
 		} while (!eof);
@@ -854,6 +876,128 @@ static char *check_token(int nr)
 			return strdup("Account");
 		}
 		return accountname;
+	}
+}
+
+static void load_menu_state(gui_t *gui)
+{
+	const char *home;
+	FILE *fin;
+	char *filename;
+	int ret;
+
+	home = getenv("HOME");
+	if (home == NULL) {
+		LOG_ERROR("Environment variable HOME is not set.\n");
+		return;
+	}
+
+	ret = asprintf(&filename, "%s/%s.cfg", home, MENU_STATE_FILE);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
+	fin = fopen(filename, "rb");
+
+	free(filename);
+	filename = NULL;
+
+	if (fin != NULL) {
+		char *buffer;
+
+		buffer = malloc(BUFFER_SIZE);
+		if (buffer != NULL) {
+			int tokennr;
+			char *title = NULL;
+			char *playllistid = NULL;
+			char *channelid = NULL;
+
+			while(!feof(fin)) {
+				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+					break;
+				}
+				buffer[strlen(buffer) - 1] = 0;
+				if (buffer[0] == 0) {
+					continue;
+				}
+				tokennr = strtol(buffer, NULL, 0);
+
+				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+					break;
+				}
+				buffer[strlen(buffer) - 1] = 0;
+				if (buffer[0] == 0) {
+					continue;
+				}
+				title = strdup(buffer);
+
+				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+					break;
+				}
+				buffer[strlen(buffer) - 1] = 0;
+				if (buffer[0] == 0) {
+					continue;
+				}
+				playllistid = strdup(buffer);
+
+				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+					break;
+				}
+				buffer[strlen(buffer) - 1] = 0;
+				if (buffer[0] == 0) {
+					continue;
+				}
+				channelid = strdup(buffer);
+
+				/* Empty line */
+				fgets(buffer, BUFFER_SIZE, fin);
+				buffer[strlen(buffer) - 1] = 0;
+
+				if ((title != NULL) && (playllistid != NULL) && (channelid != NULL)) {
+					gui_menu_entry_t *entry;
+
+					entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, title, GUI_STATE_MENU_PLAYLIST, GUI_STATE_GET_PLAYLIST);
+					if (entry != NULL) {
+						entry->tokennr = tokennr;
+						entry->playlistid = playllistid;
+						playllistid = NULL;
+						entry->channelid = channelid;
+						channelid = NULL;
+					}
+				}
+
+				if (title != NULL) {
+					free(title);
+					title = NULL;
+				}
+				if (playllistid != NULL) {
+					free(playllistid);
+					playllistid = NULL;
+				}
+				if (channelid != NULL) {
+					free(channelid);
+					channelid = NULL;
+				}
+			}
+
+			if (title != NULL) {
+				free(title);
+				title = NULL;
+			}
+			if (playllistid != NULL) {
+				free(playllistid);
+				playllistid = NULL;
+			}
+			if (channelid != NULL) {
+				free(channelid);
+				channelid = NULL;
+			}
+			free(buffer);
+			buffer = NULL;
+		}
+		fclose(fin);
+		fin = NULL;
 	}
 }
 
@@ -953,8 +1097,8 @@ gui_t *gui_alloc(const char *sharedir)
 
 	gui->description_status = 0;
 
-	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_NEW_ACCESS_TOKEN);
-	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF);
+	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_NEW_ACCESS_TOKEN, GUI_STATE_GET_MY_CHANNELS);
+	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF, GUI_STATE_GET_MY_CHANNELS);
 	found = 0;
 	for (i = 0; i < MAX_ACCOUNTS; i++) {
 		char *accountname;
@@ -963,7 +1107,7 @@ gui_t *gui_alloc(const char *sharedir)
 		if (accountname != NULL) {
 			gui_menu_entry_t *entry;
 
-			entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, accountname, GUI_STATE_LOAD_ACCESS_TOKEN);
+			entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, accountname, GUI_STATE_LOAD_ACCESS_TOKEN, GUI_STATE_GET_MY_CHANNELS);
 			if (entry != NULL) {
 				entry->tokennr = i;
 				gui->account_allocated[i] = 1;
@@ -976,13 +1120,13 @@ gui_t *gui_alloc(const char *sharedir)
 			free(accountname);
 		}
 	}
+	load_menu_state(gui);
 
 	return gui;
 }
 
 static int get_next_tokennr(gui_t *gui)
 {
-	/* TBD: Implement token management. */
 	int i;
 	
 	for (i = 0; i < MAX_ACCOUNTS; i++) {
@@ -1005,17 +1149,17 @@ static jt_access_token_t *alloc_token(int nr)
 #endif
 	int ret;
 
-	home = getenv("HOME");
-	if (home == NULL) {
-		LOG_ERROR("Environment variable HOME is not set.\n");
-		return NULL;
-	}
+home = getenv("HOME");
+if (home == NULL) {
+	LOG_ERROR("Environment variable HOME is not set.\n");
+	return NULL;
+}
 
-	ret = asprintf(&tokenfile, "%s/%s%03d.json", home, TOKEN_FILE, nr);
-	if (ret == -1) {
-		LOG_ERROR("Out of memory\n");
-		return NULL;
-	}
+ret = asprintf(&tokenfile, "%s/%s%03d.json", home, TOKEN_FILE, nr);
+if (ret == -1) {
+	LOG_ERROR("Out of memory\n");
+	return NULL;
+}
 
 	ret = asprintf(&refreshtokenfile, "%s/%s%03d.json", home, REFRESH_TOKEN_FILE, nr);
 	if (ret == -1) {
@@ -1775,6 +1919,11 @@ static char *gui_get_prevPageToken(gui_cat_t *cat)
 #endif
 				break;
 
+			case GUI_STATE_MENU_PLAYLIST:
+				/* Not supported. */
+				prevPageToken = NULL;
+				break;
+
 			default:
 				LOG_ERROR(__FILE__ ":%d: %s not supported in category %s.\n", __LINE__,
 					get_state_text(cat->prevPageState), cat->title);
@@ -1814,6 +1963,11 @@ static char *gui_get_nextPageToken(gui_cat_t *cat)
 				/* TBD: No support in navigator for unloading this side. */
 				nextPageToken = NULL;
 #endif
+				break;
+
+			case GUI_STATE_MENU_PLAYLIST:
+				/* Not supported. */
+				nextPageToken = NULL;
 				break;
 
 			default:
@@ -3040,6 +3194,78 @@ static void set_description_cancel(gui_t *gui)
 	}
 }
 
+static void save_menu_state(gui_t *gui)
+{
+	const char *home;
+	FILE *fout;
+	char *filename;
+	int error = 0;
+	int ret;
+
+	home = getenv("HOME");
+	if (home == NULL) {
+		LOG_ERROR("Environment variable HOME is not set.\n");
+		return;
+	}
+
+	ret = asprintf(&filename, "%s/%s.cfg", home, MENU_STATE_FILE);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
+	fout = fopen(filename, "wb");
+
+	free(filename);
+	filename = NULL;
+
+	if (fout != NULL) {
+		gui_menu_entry_t *entry;
+
+		entry = gui->mainmenu;
+		while(entry != NULL) {
+			if (entry->state == GUI_STATE_MENU_PLAYLIST) {
+				if (fprintf(fout, "%d\n", entry->tokennr) < 0) {
+					error = 1;
+					break;
+				}
+				if (fprintf(fout, "%s\n", entry->title) < 0) {
+					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+					error = 1;
+					break;
+				}
+				if (fprintf(fout, "%s\n", entry->playlistid) < 0) {
+					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+					error = 1;
+					break;
+				}
+				if (fprintf(fout, "%s\n", entry->channelid) < 0) {
+					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+					error = 1;
+					break;
+				}
+				if (fprintf(fout, "\n") < 0) {
+					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+					error = 1;
+					break;
+				}
+			}
+			entry = entry->next;
+			if (entry == gui->mainmenu) {
+				break;
+			}
+		}
+		fclose(fout);
+		fout = NULL;
+	} else {
+		error = 1;
+	}
+	if (error) {
+		/* On error delete broken file. */
+		unlink(filename);
+	}
+}
+
 /**
  * Main loop for GUI.
  */
@@ -3068,7 +3294,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 		enum gui_state curstate;
 
 		if (state != prevstate) {
-			fprintf(stderr, "Enter new state %d %s\n", state, get_state_text(state));
+			//fprintf(stderr, "Enter new state %d %s\n", state, get_state_text(state));
 			prevstate = state;
 		}
 
@@ -3162,6 +3388,23 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					retval = 0;
 					/* Key pressed on keyboard. */
 					switch(key) {
+						case SDLK_a:
+							if (curstate == GUI_STATE_RUNNING) {
+								gui_cat_t *cat;
+
+								cat = gui->current;
+								if (cat != NULL) {
+									if (cat->playlistid != NULL) {
+										gui_menu_entry_t *entry;
+
+										entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, cat->title, GUI_STATE_MENU_PLAYLIST, GUI_STATE_GET_PLAYLIST);
+										entry->playlistid = jt_strdup(cat->playlistid);
+										entry->channelid = jt_strdup(cat->channelid);
+										entry->tokennr = gui->selectedmenu->tokennr;
+									}
+								}
+							}
+							break;
 						case SDLK_SPACE:
 							if (state == GUI_STATE_WAIT_FOR_CONTINUE) {
 								state = GUI_RESET_STATE;
@@ -3295,6 +3538,10 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 									if ((entry->state == GUI_STATE_LOAD_ACCESS_TOKEN) || (entry->state == GUI_STATE_NEW_ACCESS_TOKEN)) {
 										/* Remove account. */
 										delete_token(entry->tokennr);
+										gui_menu_entry_free(gui, entry);
+										entry = NULL;
+									}
+									if (entry->state == GUI_STATE_MENU_PLAYLIST) {
 										gui_menu_entry_free(gui, entry);
 										entry = NULL;
 									}
@@ -3561,7 +3808,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 			break;
 		}
 		if (state != prevstate) {
-			fprintf(stderr, "Enter new state %d %s (triggered by user).\n", state, get_state_text(state));
+			//fprintf(stderr, "Enter new state %d %s (triggered by user).\n", state, get_state_text(state));
 			prevstate = state;
 		}
 
@@ -3646,7 +3893,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					LOG_ERROR("Out of memory\n");
 					entry = NULL;
 				} else {
-					entry = gui_menu_entry_alloc(gui, &gui->mainmenu, entry, accountname, GUI_STATE_LOAD_ACCESS_TOKEN);
+					entry = gui_menu_entry_alloc(gui, &gui->mainmenu, entry, accountname, GUI_STATE_LOAD_ACCESS_TOKEN, GUI_STATE_GET_MY_CHANNELS);
 					free(accountname);
 					accountname = NULL;
 				}
@@ -3768,7 +4015,11 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 #if 0 /* GUI_STATE_GET_FAVORITES is already included in GUI_STATE_GET_MY_CHANNELS. */
 				state = GUI_STATE_GET_FAVORITES;
 #else
-				state = GUI_STATE_GET_MY_CHANNELS;
+				if ((gui->selectedmenu != NULL)) {
+					state = gui->selectedmenu->initstate;
+				} else {
+					state = GUI_STATE_GET_MY_CHANNELS;
+				}
 #endif
 				break;
 			}
@@ -4093,6 +4344,8 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				if (((enum gui_state) getstate) == state) {
 					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, catpagetoken, channelnr, playlistid, videopagetoken, vidnr);
 					catpagetoken = NULL;
+					videopagetoken = NULL;
+					playlistid = NULL;
 				} else {
 					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, NULL, 0, NULL, NULL, 0);
 				}
@@ -4334,6 +4587,26 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				done = 1;
 				retval = 4;
 				break;
+
+			case GUI_STATE_MENU_PLAYLIST: {
+				/* Show playlist which was selected from menu. */
+				gui_cat_t *cat;
+
+				cat = gui_cat_alloc(gui, &gui->categories, NULL);
+				cat->nextPageState = GUI_STATE_MENU_PLAYLIST;
+				cat->prevPageState = GUI_STATE_MENU_PLAYLIST;
+				cat->playlistid = jt_strdup(gui->selectedmenu->playlistid);
+				cat->channelid = jt_strdup(gui->selectedmenu->channelid);
+		 		cat->title = jt_strdup(gui->selectedmenu->title);
+				if (((enum gui_state) getstate) == state) {
+					cat->videopagetoken = videopagetoken;
+					videopagetoken = NULL;
+				}
+				gui->cur_cat = cat;
+				state = GUI_STATE_LOAD_ACCESS_TOKEN;
+				break;
+			}
+
 		}
 
 		if (state == GUI_STATE_RUNNING) {
@@ -4351,5 +4624,6 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 		/* Paint GUI elements. */
 		gui_paint(gui, state);
 	}
+	save_menu_state(gui);
 	return retval;
 }
