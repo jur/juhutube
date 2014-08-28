@@ -616,18 +616,32 @@ static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 	}
 }
 
+static void renumber_menu_entries(gui_menu_entry_t *listhead)
+{
+	gui_menu_entry_t *cur;
+	int nr = 0;
+
+	cur = listhead;
+	nr = 0;
+	while (cur != NULL) {
+		cur->nr = nr;
+		cur = cur->next;
+		if (cur == listhead) {
+			break;
+		}
+		nr++;
+	}
+}
+
 static gui_menu_entry_t *gui_menu_entry_alloc(gui_t *gui, gui_menu_entry_t **listhead, gui_menu_entry_t *where, const char *title, enum gui_state state)
 {
 	gui_menu_entry_t *rv;
-	static int nr = 0;
 
 	rv = malloc(sizeof(*rv));
 	if (rv == NULL) {
 		return NULL;
 	}
 	memset(rv, 0, sizeof(*rv));
-	nr++;
-	rv->nr = nr;
 
 	if (listhead == &gui->mainmenu) {
 		if (gui->selectedmenu == NULL) {
@@ -664,6 +678,7 @@ static gui_menu_entry_t *gui_menu_entry_alloc(gui_t *gui, gui_menu_entry_t **lis
 		rv->title = strdup(title);
 	}
 	rv->state = state;
+	renumber_menu_entries(*listhead);
 	return rv;
 }
 
@@ -705,8 +720,14 @@ static void gui_menu_entry_free(gui_t *gui, gui_menu_entry_t *entry)
 			SDL_FreeSurface(entry->textimg);
 			entry->textimg = NULL;
 		}
+		if ((entry->state == GUI_STATE_LOAD_ACCESS_TOKEN) || (entry->state == GUI_STATE_NEW_ACCESS_TOKEN)) {
+			gui->account_allocated[entry->tokennr] = 0;
+		}
+
 		free(entry);
 		entry = NULL;
+
+		renumber_menu_entries(gui->mainmenu);
 	}
 }
 
@@ -815,6 +836,7 @@ gui_t *gui_alloc(const char *sharedir)
 	gui_t *gui;
 	const SDL_VideoInfo *info;
 	int i;
+	int found;
 
 	gui = malloc(sizeof(*gui));
 	if (gui == NULL) {
@@ -905,6 +927,7 @@ gui_t *gui_alloc(const char *sharedir)
 
 	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_NEW_ACCESS_TOKEN);
 	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF);
+	found = 0;
 	for (i = 0; i < MAX_ACCOUNTS; i++) {
 		char *accountname;
 
@@ -916,6 +939,11 @@ gui_t *gui_alloc(const char *sharedir)
 			if (entry != NULL) {
 				entry->tokennr = i;
 				gui->account_allocated[i] = 1;
+				if (!found) {
+					/* Select first account as default. */
+					gui->selectedmenu = entry;
+				}
+				found = 1;
 			}
 			free(accountname);
 		}
@@ -2929,6 +2957,15 @@ static void set_description_select(gui_t *gui)
 	}
 }
 
+static void set_description_cancel(gui_t *gui)
+{
+	if (gui->description_status != 3) {
+		set_no_description(gui);
+		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Cancel");
+		gui->description_status = 3;
+	}
+}
+
 /**
  * Main loop for GUI.
  */
@@ -2957,7 +2994,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 		enum gui_state curstate;
 
 		if (state != prevstate) {
-			//fprintf(stderr, "Enter new state %d %s\n", state, get_state_text(state));
+			fprintf(stderr, "Enter new state %d %s\n", state, get_state_text(state));
 			prevstate = state;
 		}
 
@@ -3170,22 +3207,31 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 											gui_free_categories(gui);
 
 											/* Back to main menu. */
-											state = GUI_STATE_MAIN_MENU;
+											nextstate = GUI_STATE_MAIN_MENU;
+											state = GUI_RESET_STATE;
 										}
 									}
 								}
 							}
-							if (curstate == GUI_STATE_MAIN_MENU) {
+							if ((curstate == GUI_STATE_MAIN_MENU) || (state == GUI_STATE_GET_TOKEN)) {
 								gui_menu_entry_t *entry;
 
 								entry = gui->selectedmenu;
 								if (entry != NULL) {
-									if (entry->state == GUI_STATE_LOAD_ACCESS_TOKEN) {
+									if ((entry->state == GUI_STATE_LOAD_ACCESS_TOKEN) || (entry->state == GUI_STATE_NEW_ACCESS_TOKEN)) {
 										/* Remove account. */
 										delete_token(entry->tokennr);
 										gui_menu_entry_free(gui, entry);
 										entry = NULL;
 									}
+								}
+								if (state == GUI_STATE_GET_TOKEN) {
+									set_no_description(gui);
+									/* Back to main menu. */
+									nextstate = GUI_STATE_MAIN_MENU;
+									state = GUI_RESET_STATE;
+									wakeupcount = 0;
+									gui_free_categories(gui);
 								}
 								break;
 							}
@@ -3441,7 +3487,7 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 			break;
 		}
 		if (state != prevstate) {
-			//fprintf(stderr, "Enter new state %d %s (triggered by user).\n", state, get_state_text(state));
+			fprintf(stderr, "Enter new state %d %s (triggered by user).\n", state, get_state_text(state));
 			prevstate = state;
 		}
 
@@ -3453,7 +3499,9 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 		curstate = (wakeupcount <= 0) ? state : GUI_STATE_SLEEP;
 		switch(curstate) {
 			case GUI_STATE_SLEEP:
-				set_no_description(gui);
+				if (state != GUI_STATE_GET_TOKEN) {
+					set_no_description(gui);
+				}
 				break;
 
 			case GUI_STATE_WAIT_FOR_CONTINUE:
@@ -3490,6 +3538,8 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 			case GUI_STATE_NEW_ACCESS_TOKEN: {
 				gui_menu_entry_t *entry;
 				int nr;
+				char *accountname;
+				int ret;
 				
 				nr = get_next_tokennr(gui);
 				if (nr < 0) {
@@ -3499,13 +3549,39 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					state = GUI_STATE_MAIN_MENU;
 					break;
 				}
+				entry = gui->mainmenu;
+				while(entry != NULL) {
+					gui_menu_entry_t *next;
 
-				entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Account", GUI_STATE_LOAD_ACCESS_TOKEN);
+					next = entry->next;
+					if (next == gui->mainmenu) {
+						break;
+					}
+					if (next != NULL) {
+						if (next->tokennr > nr) {
+							/* Sort by tokennr. */
+							/* Insert before larger tokennr. */
+							break;
+						}
+					}
+					entry = entry->next;
+				}
+
+				ret = asprintf(&accountname, "Account %03d", nr);
+				if (ret == -1) {
+					LOG_ERROR("Out of memory\n");
+					entry = NULL;
+				} else {
+					entry = gui_menu_entry_alloc(gui, &gui->mainmenu, entry, accountname, GUI_STATE_LOAD_ACCESS_TOKEN);
+					free(accountname);
+					accountname = NULL;
+				}
 				if (entry == NULL) {
 					gui->statusmsg = buf_printf(gui->statusmsg, "Failed to allocate menu entry.");
 					/* Retry */
 					wakeupcount = DEFAULT_SLEEP;
-					state = GUI_STATE_MAIN_MENU;
+					nextstate = GUI_STATE_MAIN_MENU;
+					state = GUI_RESET_STATE;
 					break;
 				}
 				entry->tokennr = nr;
@@ -3524,7 +3600,8 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					gui->statusmsg = buf_printf(gui->statusmsg, "Failed to allocate token.");
 					/* Retry */
 					wakeupcount = DEFAULT_SLEEP;
-					state = GUI_STATE_MAIN_MENU;
+					nextstate = GUI_STATE_MAIN_MENU;
+					state = GUI_RESET_STATE;
 					break;
 				}
 				/* Try to load existing access for YouTube user account. */
@@ -3550,8 +3627,9 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 					state = GUI_STATE_GET_TOKEN;
 					wakeupcount = sleeptime;
 				} else {
+					gui_menu_entry_t *entry;
 					state = GUI_STATE_ERROR;
-					nextstate = GUI_STATE_MAIN_MENU;
+					nextstate = GUI_STATE_GET_USER_CODE;
 
 					/* Remove user code. */
 					if (gui->statusmsg != NULL) {
@@ -3562,10 +3640,13 @@ int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const 
 				break;
 
 			case GUI_STATE_GET_TOKEN:
+				set_description_cancel(gui);
+
 				/* Check whether the user permitted access for this application. */
 				rv = jt_get_token(gui->at);
 				switch (rv) {
 					case JT_OK:
+						set_no_description(gui);
 						state = GUI_STATE_LOGGED_IN;
 						break;
 
