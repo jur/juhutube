@@ -1,5 +1,4 @@
-juhutube
-========
+# juhutube
 
 Access YouTube from devices with limited resources
 
@@ -12,7 +11,7 @@ https://developers.google.com/youtube/registering_an_application
 You need to choose OAuth 2.0.
 
 You can also download the JSON file from the Google Developer Console and
-store it here: $HOME/.client_secret.json
+store it here: `$HOME/.client_secret.json`
 Then you don't need to change clientid.h.
 
 When you edited clientid.h, you can run:
@@ -24,7 +23,7 @@ doxygen comments.
 STATUS: The library is still incomplete. There is no streaming support yet.
 
 On Playstation 2 you should set the SDL video driver with:
-export SDL_VIDEODRIVER=ps2gs
+`export SDL_VIDEODRIVER=ps2gs`
 
 The default is fbcon, this also works with PS2, but is slower.
 
@@ -35,11 +34,12 @@ need to have youtube-dl and mplayer installed.
 
 http://rg3.github.io/youtube-dl/
 
-YTNavigator
-#########
+# YTNavigator
 YTNavigator is an example program for navigating through your subscribed
 channels and play back videos. To use this program a YouTube account is
 required.
+
+![00003890](https://cloud.githubusercontent.com/assets/1646215/4089109/0e13e3f6-2f67-11e4-86d5-c396299a192e.png)
 
 You can exit the application by pressing the Q or ESC keys.
 
@@ -49,8 +49,8 @@ You can navigate through the videos using the LEFT and RIGHT keys.
 
 The current selected video is in the upper left corner.
 
-To playback a video press the RETURN key or SQUARE. When you want to playback a
-playlist starting with the current selected video, press SPACE, START or CROSS.
+To playback a video press the RETURN key or START. When you want to playback a
+playlist starting with the current selected video, press SPACE or CROSS.
 If you want to play the videos in the reverse order press the R key or TRIANGLE.
 
 To stop the playback press Q or CIRCLE. When you don't want to play the remaining videos
