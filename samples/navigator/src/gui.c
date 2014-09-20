@@ -3221,18 +3221,63 @@ static void set_description_continue(gui_t *gui)
 	if (gui->description_status != 3) {
 		set_no_description(gui);
 		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Continue");
+		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Power Off");
 		gui->description_status = 3;
 	}
 }
 
 static void set_description_select(gui_t *gui)
 {
+	gui_menu_entry_t *entry;
+
 	if (gui->description_status != 3) {
 		set_no_description(gui);
-		gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Select");
-		gui->circle_text = gui_printf(gui->descfont, gui->circle_text, "Remove");
-		gui->description_status = 3;
+		gui->square_text = gui_printf(gui->descfont, gui->square_text, "Power Off");
 	}
+	entry = gui->selectedmenu;
+	if (entry != NULL) {
+		switch (entry->state) {
+			case GUI_STATE_NEW_ACCESS_TOKEN:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "New account");
+				break;
+
+			case GUI_STATE_LOAD_ACCESS_TOKEN:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Show account");
+				break;
+
+			case GUI_STATE_POWER_OFF:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Power Off");
+				break;
+
+			case GUI_STATE_MENU_PLAYLIST:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Show playlist");
+				break;
+
+			default:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Select");
+				break;
+		}
+		switch (entry->state) {
+			case GUI_STATE_LOAD_ACCESS_TOKEN:
+				gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Remove account");
+				break;
+
+			case GUI_STATE_MENU_PLAYLIST:
+				gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Remove playlist");
+				break;
+
+			default:
+				if (gui->triangle_text != NULL) {
+					free(gui->triangle_text);
+					gui->triangle_text = NULL;
+				}
+				break;
+		}
+	} else {
+		set_no_description(gui);
+		gui->square_text = gui_printf(gui->descfont, gui->square_text, "Power Off");
+	}
+	gui->description_status = 3;
 }
 
 static void set_description_cancel(gui_t *gui)
@@ -3440,6 +3485,8 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 				case SDL_KEYDOWN:
 					retval = 0;
+					/* Don't wait when a key is pressed. */
+					wakeupcount = 0;
 					/* Key pressed on keyboard. */
 					switch(key) {
 						case SDLK_a:
@@ -3475,6 +3522,25 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 								break;
 							}
 						case SDLK_r:
+							if (curstate == GUI_STATE_MAIN_MENU) {
+								gui_menu_entry_t *entry;
+
+								/* Delete entry. */
+								entry = gui->selectedmenu;
+								if (entry != NULL) {
+									if (entry->state == GUI_STATE_LOAD_ACCESS_TOKEN) {
+										/* Remove account. */
+										delete_token(entry->tokennr);
+										gui_menu_entry_free(gui, entry);
+										entry = NULL;
+									} else if (entry->state == GUI_STATE_MENU_PLAYLIST) {
+										/* Remove playlist. */
+										gui_menu_entry_free(gui, entry);
+										entry = NULL;
+									}
+								}
+								break;
+							}
 						case SDLK_RETURN: {
 							if (curstate == GUI_STATE_RUNNING) {
 								gui_cat_t *cat;
@@ -3519,6 +3585,10 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 						}
 
 						case SDLK_s: {
+							if (state == GUI_STATE_MAIN_MENU) {
+								state = GUI_STATE_POWER_OFF;
+								break;
+							}
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->statusmsg == NULL) {
 									if (gui->current != NULL) {
@@ -3545,46 +3615,48 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 						}
 
 						case SDLK_ESCAPE: {
+							if (state == GUI_STATE_WAIT_FOR_CONTINUE) {
+								state = GUI_STATE_POWER_OFF;
+								break;
+							}
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->statusmsg == NULL) {
-									if (gui->current != NULL) {
-										lastcatpagetoken = NULL;
-										set_no_description(gui);
-										if (gui->prev_cat != NULL) {
-											/* Back to previous view from playlist view. */
-											gui_cat_t *cat;
-											enum gui_state nextPageState;
+									lastcatpagetoken = NULL;
+									set_no_description(gui);
+									if ((gui->current != NULL) && (gui->prev_cat != NULL)) {
+										/* Back to previous view from playlist view. */
+										gui_cat_t *cat;
+										enum gui_state nextPageState;
 
-											nextPageState = gui->current->nextPageState;
+										nextPageState = gui->current->nextPageState;
 
-											gui->current = gui->prev_cat;
-											gui->prev_cat = NULL;
+										gui->current = gui->prev_cat;
+										gui->prev_cat = NULL;
 
-											/* Delete playlist when returning. */
-											cat = gui->categories;
-											while (cat != NULL) {
-												gui_cat_t *next;
-												next = cat->next;
-												if (cat->nextPageState == nextPageState) {
-													gui_cat_free(gui, cat);
-													cat = NULL;
-												}
-												cat = next;
-												if ((gui->categories == NULL) || (cat == gui->categories)) {
-													break;
-												}
+										/* Delete playlist when returning. */
+										cat = gui->categories;
+										while (cat != NULL) {
+											gui_cat_t *next;
+											next = cat->next;
+											if (cat->nextPageState == nextPageState) {
+												gui_cat_free(gui, cat);
+												cat = NULL;
 											}
-										} else {
-											gui_free_categories(gui);
-
-											/* Back to main menu. */
-											nextstate = GUI_STATE_MAIN_MENU;
-											state = GUI_RESET_STATE;
+											cat = next;
+											if ((gui->categories == NULL) || (cat == gui->categories)) {
+												break;
+											}
 										}
+									} else {
+										gui_free_categories(gui);
+
+										/* Back to main menu. */
+										nextstate = GUI_STATE_MAIN_MENU;
+										state = GUI_RESET_STATE;
 									}
 								}
 							}
-							if ((curstate == GUI_STATE_MAIN_MENU) || (state == GUI_STATE_GET_TOKEN)) {
+							if (state == GUI_STATE_GET_TOKEN) {
 								gui_menu_entry_t *entry;
 
 								entry = gui->selectedmenu;
@@ -3595,6 +3667,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 										gui_menu_entry_free(gui, entry);
 										entry = NULL;
 									} else if (entry->state == GUI_STATE_MENU_PLAYLIST) {
+										/* Remove playlist. */
 										gui_menu_entry_free(gui, entry);
 										entry = NULL;
 									}
