@@ -41,7 +41,7 @@ required.
 
 ![00003890](https://cloud.githubusercontent.com/assets/1646215/4089109/0e13e3f6-2f67-11e4-86d5-c396299a192e.png)
 
-You can exit the application by pressing the Q or ESC keys.
+You can exit the application by pressing the Q key.
 
 You can navigate through the video playlists using the UP and DOWN keys.
 
@@ -57,5 +57,5 @@ To stop the playback press Q or CIRCLE. When you don't want to play the remainin
 in the playlist, you need to press any key when currently no video is played.
 You need first to stop the playback with the Q key or CIRCLE.
 
-To get all playlists of a channel press the P key or CIRCLE. Press P or CIRCLE
-again to return from the playlist.
+To get all playlists of a channel press the S key or SQUARE. Press Escape or CIRCLE
+to return from the playlist.
