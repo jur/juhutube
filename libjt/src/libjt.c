@@ -48,6 +48,9 @@
 		} \
 	} while(0)
 
+/** Return string if string parameter is not NULL, otherwise return "(null)". */
+#define CHECKSTR(stringptr) (((stringptr) != NULL) ? (stringptr) : "(null)")
+
 /**
  * Convert switch case value into text format.
  */
@@ -968,15 +971,15 @@ static void jt_print_response(jt_access_token_t *at, const char *url, const char
 		if (error != NULL) {
 			if (description != NULL) {
 				LOG("Response of URL %s is:\n", url);
-				LOG("Error: %s, %s\n", error, description);
+				LOG("Error: %s, %s\n", CHECKSTR(error), CHECKSTR(description));
 				if (at->errfd != NULL) {
 					curl_formget(formpost, at->errfd, print_httppost_callback);
 				}
 			} else {
 				if ((strcmp(error, "slow_down") != 0) &&
 					(strcmp(error, "authorization_pending") != 0)) {
-					LOG("Response of URL %s is:\n", url);
-					LOG("Error: %s, %s\n", error, description);
+					LOG("Response of URL %s is:\n", CHECKSTR(url));
+					LOG("Error: %s, %s\n", CHECKSTR(error), CHECKSTR(description));
 					if (at->errfd != NULL) {
 						curl_formget(formpost, at->errfd, print_httppost_callback);
 					}
@@ -984,8 +987,8 @@ static void jt_print_response(jt_access_token_t *at, const char *url, const char
 				}
 			}
 		} else {
-			LOG("Response of URL %s is:\n", url);
-			LOG("%s\n", webpage);
+			LOG("Response of URL %s is:\n", CHECKSTR(url));
+			LOG("%s\n", CHECKSTR(webpage));
 		}
 	}
 }
@@ -1009,7 +1012,7 @@ static void jt_print_response(jt_access_token_t *at, const char *url, const char
 static int jt_load_json(jt_access_token_t *at, const char *url, struct curl_slist *headers,
 	struct curl_httppost *formpost, const char *savefilename)
 {
-	LOG("%s(): URL %s: savefilename %s\n", __FUNCTION__, url, savefilename);
+	LOG("%s(): URL %s: savefilename %s\n", __FUNCTION__, url, CHECKSTR(savefilename));
 
 	if (at->transfer.jobj != NULL) {
 		LOG_ERROR("jt_load_json called with jobj.\n");
@@ -1324,7 +1327,7 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 		url = NULL;
 		return JT_NO_MEM;
 	}
-	LOG("%s() URL: %s\n", __FUNCTION__, url);
+	LOG("%s() URL: %s\n", __FUNCTION__, CHECKSTR(url));
 
 	retry = 0;
 	do {
@@ -1336,7 +1339,7 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 			at->transfer.jobj = NULL;
 		}
 
-		ret = asprintf(&token, "Authorization: %s %s", at->token_type, at->access_token);
+		ret = asprintf(&token, "Authorization: %s %s", CHECKSTR(at->token_type), CHECKSTR(at->access_token));
 		if (ret == -1) {
 			token = NULL;
 			free(url);
@@ -1370,7 +1373,7 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 						rv = JT_AUTH_ERROR;
 					}
 				} else {
-					LOG_ERROR("%s() URL: %s\n", __FUNCTION__, url);
+					LOG_ERROR("%s() URL: %s\n", __FUNCTION__, CHECKSTR(url));
 					LOG_ERROR("%s\n", error);
 					if (at->protocol_error != NULL) {
 						free(at->protocol_error);
@@ -1552,7 +1555,7 @@ static int jt_load_token_file(jt_access_token_t *at, const char *filename)
 	char *token_type = NULL;
 	char *refresh_token = NULL;
 
-	LOG("%s() filename %s\n", __FUNCTION__, filename);
+	LOG("%s() filename %s\n", __FUNCTION__, CHECKSTR(filename));
 
 	if (at->transfer.jobj != NULL) {
 		LOG_ERROR("jt_load_token_file called with jobj.\n");

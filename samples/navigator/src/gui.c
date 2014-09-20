@@ -80,6 +80,9 @@
  * Otherwise the outsider letters would only be seen for a very short time. */
 #define SCROLL_COUNT_END 0
 
+/** Return string if string parameter is not NULL, otherwise return "(null)". */
+#define CHECKSTR(stringptr) (((stringptr) != NULL) ? (stringptr) : "(null)")
+
 #define CASESTATE(state) \
 	case state: \
 		return #state;
@@ -371,6 +374,10 @@ static SDL_Surface *gui_get_image(gui_t *gui, const char *file)
 	int ret;
 	char *filename = NULL;
 	SDL_Surface *rv;
+
+	if (file == NULL) {
+		return NULL;
+	}
 
 	ret = asprintf(&filename, "%s/%s", gui->sharedir, file);
 	if (ret == -1) {
@@ -1155,17 +1162,17 @@ static jt_access_token_t *alloc_token(int nr)
 #endif
 	int ret;
 
-home = getenv("HOME");
-if (home == NULL) {
-	LOG_ERROR("Environment variable HOME is not set.\n");
-	return NULL;
-}
-
-ret = asprintf(&tokenfile, "%s/%s%03d.json", home, TOKEN_FILE, nr);
-if (ret == -1) {
-	LOG_ERROR("Out of memory\n");
-	return NULL;
-}
+	home = getenv("HOME");
+	if (home == NULL) {
+		LOG_ERROR("Environment variable HOME is not set.\n");
+		return NULL;
+	}
+	
+	ret = asprintf(&tokenfile, "%s/%s%03d.json", home, TOKEN_FILE, nr);
+	if (ret == -1) {
+		LOG_ERROR("Out of memory\n");
+		return NULL;
+	}
 
 	ret = asprintf(&refreshtokenfile, "%s/%s%03d.json", home, REFRESH_TOKEN_FILE, nr);
 	if (ret == -1) {
@@ -1410,6 +1417,10 @@ static SDL_Surface *gui_load_image(transfer_t *transfer, const char *url)
 	void *mem = NULL;
 	int size;
 
+	if (url == NULL) {
+		return NULL;
+	}
+
 	size = transfer_binary(transfer, url, &mem);
 	if ((size > 0) && (mem != NULL)) {
 		SDL_RWops *rw = SDL_RWFromMem(mem, size);
@@ -1480,7 +1491,11 @@ static void gui_paint_cat_view(gui_t *gui)
 				nr = cat->channelNr;
 			}
 			/* Convert text to an image. */
-			sText = gui_printf(gui->font, sText, "%03d %s", nr + 1, cat->title);
+			if (cat->title != NULL) {
+				sText = gui_printf(gui->font, sText, "%03d %s", nr + 1, cat->title);
+			} else {
+				sText = gui_printf(gui->font, sText, "%03d No Title", nr + 1);
+			}
 		}
 		if (sText != NULL) {
 			SDL_Rect headerDest = {40, 40, 0, 0};
@@ -1603,7 +1618,7 @@ static void gui_paint_cat_view(gui_t *gui)
 					/* Print video title under the image. */
 					if (cat->title != NULL) {
 						/* Convert text to an image. */
-						sText = gui_printf(gui->smallfont, sText, "[%d] %s", current->subnr + 1, current->title);
+						sText = gui_printf(gui->smallfont, sText, "[%d] %s", current->subnr + 1, CHECKSTR(current->title));
 					}
 					if (sText != NULL) {
 						SDL_Rect headerDest = rcDest;
@@ -2973,7 +2988,11 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 			SDL_WM_ToggleFullScreen(gui->screen);
 		}
 
-		printf("Playing %s (%s)\n", elem->title, elem->videoid);
+		printf("Playing %s (%s)\n", CHECKSTR(elem->title), CHECKSTR(elem->videoid));
+		if (elem->videoid == NULL) {
+			LOG_ERROR("Video has no videoid.\n");
+			return 1;
+		}
 
 		if (format == 0) {
 			ret = asprintf(&cmd, "wget --user-agent=\"$(youtube-dl --dump-user-agent)\" -o /dev/null -O - --load-cookies /tmp/ytcookie-%s.txt - \"$(youtube-dl -g --cookies=/tmp/ytcookie-%s.txt 'http://www.youtube.com/watch?v=%s')\" | mplayer -cache %d -fs -", elem->videoid, elem->videoid, elem->videoid, buffersize);
@@ -3127,23 +3146,23 @@ void print_debug_cat(gui_t *gui, gui_cat_t *cat)
 		printf("Category is subnr %d: channelNr: %d channelid %s: playlistid %s: nextPage %s:%s prevPage %s:%s: %s\n",
 			cat->subnr,
 			cat->channelNr,
-			cat->channelid,
-			cat->playlistid,
-			get_state_text(cat->nextPageState), gui_get_nextPageToken(cat),
-			get_state_text(cat->prevPageState), gui_get_prevPageToken(cat), cat->title);
+			CHECKSTR(cat->channelid),
+			CHECKSTR(cat->playlistid),
+			get_state_text(cat->nextPageState), CHECKSTR(gui_get_nextPageToken(cat)),
+			get_state_text(cat->prevPageState), CHECKSTR(gui_get_prevPageToken(cat)), CHECKSTR(cat->title));
 
 		p = cat->elem;
 		while (p != NULL) {
 			printf("%c subnr %d channelid %s videoid %s p->prevPageToken %s title %s\n",
 				(p == cat->current) ? '+' : '-', p->subnr,
-				p->channelid,
-				p->videoid,
-				p->prevPageToken, p->title);
+				CHECKSTR(p->channelid),
+				CHECKSTR(p->videoid),
+				CHECKSTR(p->prevPageToken), CHECKSTR(p->title));
 			printf("%c subnr %d channelid %s videoid %s p->nextPageToken %s title %s\n",
 				(p == cat->current) ? '+' : '-', p->subnr,
-				p->channelid,
-				p->videoid,
-				p->nextPageToken, p->title);
+				CHECKSTR(p->channelid),
+				CHECKSTR(p->videoid),
+				CHECKSTR(p->nextPageToken), CHECKSTR(p->title));
 			if (p->next == cat->elem) {
 				break;
 			}
@@ -3260,17 +3279,17 @@ static void save_menu_state(gui_t *gui)
 					error = 1;
 					break;
 				}
-				if (fprintf(fout, "%s\n", entry->title) < 0) {
+				if (fprintf(fout, "%s\n", (entry->title != NULL) ? entry->title : "No title") < 0) {
 					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
 					error = 1;
 					break;
 				}
-				if (fprintf(fout, "%s\n", entry->playlistid) < 0) {
+				if (fprintf(fout, "%s\n", (entry->playlistid != NULL) ? entry->playlistid : "") < 0) {
 					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
 					error = 1;
 					break;
 				}
-				if (fprintf(fout, "%s\n", entry->channelid) < 0) {
+				if (fprintf(fout, "%s\n", (entry->channelid != NULL) ? entry->channelid : "") < 0) {
 					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
 					error = 1;
 					break;
@@ -4230,7 +4249,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 						}
 					} else {
 						gui->statusmsg = buf_printf(gui->statusmsg, "No playlist id");
-						LOG_ERROR("GUI_STATE_GET_PLAYLIST: No playlist id in cat %s.\n", gui->cur_cat->title);
+						LOG_ERROR("GUI_STATE_GET_PLAYLIST: No playlist id in cat %s.\n", CHECKSTR(gui->cur_cat->title));
 						wakeupcount = DEFAULT_SLEEP;
 						if (gui->get_playlist_cat == NULL) {
 							state = afterplayliststate;
@@ -4334,7 +4353,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 								if (gui->get_playlist_cat == NULL) {
 									state = GUI_STATE_RUNNING;
 									wakeupcount = DEFAULT_SLEEP;
-									gui->statusmsg = buf_printf(gui->statusmsg, "Failed update_channels() for cat %s.", (gui->cur_cat != NULL) ? gui->cur_cat->title : "(null)");
+									gui->statusmsg = buf_printf(gui->statusmsg, "Failed update_channels() for cat %s.", (gui->cur_cat != NULL) ? CHECKSTR(gui->cur_cat->title) : "(null)");
 									LOG_ERROR("Failed update_channels() for cat %s.\n", (gui->cur_cat != NULL) ? gui->cur_cat->title : "(null)");
 								} else {
 									state = GUI_STATE_GET_PLAYLIST;
@@ -4409,8 +4428,8 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 					if (gui->get_playlist_cat == NULL) {
 						state = GUI_STATE_RUNNING;
 						wakeupcount = DEFAULT_SLEEP;
-						gui->statusmsg = buf_printf(gui->statusmsg, "No playlists for cat %s.", (gui->cur_cat != NULL) ? gui->cur_cat->title : "(null)");
-						LOG_ERROR("No playlists for %s.\n", (gui->cur_cat != NULL) ? gui->cur_cat->title : "(null)");
+						gui->statusmsg = buf_printf(gui->statusmsg, "No playlists for cat %s.", (gui->cur_cat != NULL) ? CHECKSTR(gui->cur_cat->title) : "(null)");
+						LOG_ERROR("No playlists for %s.\n", (gui->cur_cat != NULL) ? CHECKSTR(gui->cur_cat->title) : "(null)");
 					} else {
 						state = GUI_STATE_GET_PLAYLIST;
 						afterplayliststate = GUI_STATE_RUNNING;
@@ -4584,8 +4603,13 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							LOG_ERROR("%s\n", error);
 						} else {
 							error = jt_get_protocol_error(gui->at);
-							gui->statusmsg = buf_printf(gui->statusmsg, "Error: %s", error);
-							LOG_ERROR("Error: %s\n", error);
+							if (error != NULL) {
+								gui->statusmsg = buf_printf(gui->statusmsg, "Error: %s", error);
+								LOG_ERROR("Error: %s\n", error);
+							} else {
+								gui->statusmsg = buf_printf(gui->statusmsg, "Unknown protocol error");
+								LOG_ERROR("Error: Unkown protocol error\n");
+							}
 						}
 						break;
 
@@ -4606,8 +4630,8 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 							default:
 								error = curl_easy_strerror(res);
-								gui->statusmsg = buf_printf(gui->statusmsg, "Transfer failed: %s", error);
-								LOG_ERROR("Transfer failed: %s\n", error);
+								gui->statusmsg = buf_printf(gui->statusmsg, "Transfer failed: %s", CHECKSTR(error));
+								LOG_ERROR("Transfer failed: %s\n", CHECKSTR(error));
 								break;
 						}
 						break;
@@ -4625,8 +4649,8 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 					default:
 						error = jt_get_error_code(rv);
-						gui->statusmsg = buf_printf(gui->statusmsg, "Error: %s", error);
-						LOG_ERROR("Error: %s\n", error);
+						gui->statusmsg = buf_printf(gui->statusmsg, "Error: %s", CHECKSTR(error));
+						LOG_ERROR("Error: %s\n", CHECKSTR(error));
 						break;
 				}
 				state = GUI_STATE_WAIT_FOR_CONTINUE;
