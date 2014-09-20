@@ -33,6 +33,8 @@
 #define MAX_ACCOUNTS 10
 /** Chunk size for loadinf files. */
 #define CHUNK_SIZE 256
+/** Size of cache for small text. */
+#define TITLE_CACHE_ENTRIES 30
 
 #define BUFFER_SIZE 4096
 
@@ -275,6 +277,16 @@ struct gui_menu_entry_s {
 	gui_menu_entry_t *prev;
 };
 
+/** Entry for caching images of text. */
+typedef struct {
+	/** Text pointer of cached title image. */
+	const char *title;
+	/** The cached title image. */
+	SDL_Surface *sText;
+	/** Hit counter. */
+	int count;
+} title_cache_t;
+
 struct gui_s {
 	/** Path to resources like images. */
 	const char *sharedir;
@@ -346,6 +358,9 @@ struct gui_s {
 
 	/** True, if account is allocated. */
 	int account_allocated[MAX_ACCOUNTS];
+
+	/** Cache for images of small text. */
+	title_cache_t title_cache_table[TITLE_CACHE_ENTRIES];
 };
 
 /**
@@ -397,6 +412,42 @@ static SDL_Surface *gui_get_image(gui_t *gui, const char *file)
 	filename = NULL;
 
 	return rv;
+}
+
+static void add_cached_title(gui_t *gui, SDL_Surface *sText, const char *title)
+{
+	int i;
+	int min;
+	int idx = 0;
+
+	min = 100000;
+	for (i = 0; i < TITLE_CACHE_ENTRIES; i++) {
+		gui->title_cache_table[i].count--;
+		if (gui->title_cache_table[i].count < min) {
+			min = gui->title_cache_table[i].count;
+			idx = i;
+		}
+	}
+	if (gui->title_cache_table[idx].sText != NULL) {
+		SDL_FreeSurface(gui->title_cache_table[idx].sText);
+	}
+	gui->title_cache_table[idx].sText = sText;
+	gui->title_cache_table[idx].count = 1000;
+	gui->title_cache_table[idx].title = title;
+}
+
+static void cache_title_free(gui_t *gui)
+{
+	int i;
+
+	for (i = 0; i < TITLE_CACHE_ENTRIES; i++) {
+		if (gui->title_cache_table[i].sText != NULL) {
+			SDL_FreeSurface(gui->title_cache_table[i].sText);
+			gui->title_cache_table[i].sText = NULL;
+			gui->title_cache_table[i].title = NULL;
+			gui->title_cache_table[i].count = 0;
+		}
+	}
 }
 
 static gui_cat_t *gui_cat_alloc(gui_t *gui, gui_cat_t **listhead, gui_cat_t *where)
@@ -1410,6 +1461,9 @@ void gui_free(gui_t *gui)
 			SDL_FreeSurface(gui->screen);
 			gui->screen = NULL;
 		}
+
+		cache_title_free(gui);
+
 		TTF_Quit();
 		SDL_VideoQuit();
 		SDL_Quit();
@@ -1474,6 +1528,20 @@ static SDL_Surface *gui_printf(TTF_Font *font, SDL_Surface *image, const char *f
 	text = NULL;
 
 	return rv;
+}
+
+static SDL_Surface *cached_title(gui_t *gui, const char *title)
+{
+	int i;
+
+	for (i = 0; i < TITLE_CACHE_ENTRIES; i++) {
+		if (gui->title_cache_table[i].title == title) {
+			gui->title_cache_table[i].count++;
+			return gui->title_cache_table[i].sText;
+		}
+	}
+	//printf("Cache miss for: %s\n", title);
+	return NULL;
 }
 
 static void gui_paint_cat_view(gui_t *gui)
@@ -1624,14 +1692,21 @@ static void gui_paint_cat_view(gui_t *gui)
 
 					/* Print video title under the image. */
 					if (cat->title != NULL) {
-						/* Convert text to an image. */
-						sText = gui_printf(gui->smallfont, sText, "[%d] %s", current->subnr + 1, CHECKSTR(current->title));
+						sText = cached_title(gui, current->title);
+
+						if (sText == NULL) {
+							/* Convert text to an image. */
+							sText = gui_printf(gui->smallfont, sText, "[%d] %s", current->subnr + 1, current->title);
+							if (sText != NULL) {
+								add_cached_title(gui, sText, current->title);
+							}
+						}
 					}
 					if (sText != NULL) {
 						SDL_Rect headerDest = rcDest;
 						SDL_Rect headerSrc;
 						headerDest.y += image->h + 10;
-						if (current->textScrollPos > (sText->w - image->w)) {
+						if (current->textScrollPos > (sText->w - image->w + 10)) {
 							/* This can happen, because there are small and medium size thumbnails.
 							 * When the user navigates, the thumbnails can be larger or smaller.
 							 */
@@ -1656,14 +1731,14 @@ static void gui_paint_cat_view(gui_t *gui)
 										current->textScrollDir = 1;
 										current->textScrollCounter = SCROLL_COUNT_END;
 									} else {
-										current->textScrollPos++;
+										current->textScrollPos += 3;
 									}
 								} else {
 									if (current->textScrollPos == 0) {
 										current->textScrollDir = 0;
 										current->textScrollCounter = SCROLL_COUNT_END;
 									} else {
-										current->textScrollPos--;
+										current->textScrollPos -= 3;
 									}
 								}
 							}
@@ -1672,7 +1747,6 @@ static void gui_paint_cat_view(gui_t *gui)
 						}
 						headerSrc.h = image->h;
 						SDL_BlitSurface(sText, &headerSrc, gui->screen, &headerDest);
-						SDL_FreeSurface(sText);
 						sText = NULL;
 					}
 				}
@@ -1761,7 +1835,7 @@ static void gui_paint_main_view(gui_t *gui)
 					} else {
 						rcDest.x = BORDER_X;
 						entry->pos += entry->dir;
-						if (entry->pos >= 100) {
+						if (entry->pos >= 28) {
 							entry->dir = -1;
 						}
 						if (entry->pos == 0) {
@@ -1769,7 +1843,7 @@ static void gui_paint_main_view(gui_t *gui)
 						}
 					}
 				}
-				if (scroll || (entry->pos <= 50)) {
+				if ((entry != gui->selectedmenu) || scroll || (entry->pos <= 14)) {
 					SDL_BlitSurface(image, &headerSrc, gui->screen, &rcDest);
 				}
 				rcDest.x = BORDER_X;
