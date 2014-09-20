@@ -244,6 +244,10 @@ struct gui_cat_s {
 	const char *expected_playlistid;
 	/** Videonumber of the first video of the page specified by videopagetoken. */
 	int vidnr;
+	/** Scroll direction of title. */
+	int scrolldir;
+	/** Scroll position of title. */
+	int scrollpos;
 };
 
 typedef struct gui_menu_entry_s gui_menu_entry_t;
@@ -459,6 +463,7 @@ static gui_cat_t *gui_cat_alloc(gui_t *gui, gui_cat_t **listhead, gui_cat_t *whe
 		return NULL;
 	}
 	memset(rv, 0, sizeof(*rv));
+	rv->scrolldir = 1;
 
 	if (listhead == &gui->categories) {
 		if (gui->current == NULL) {
@@ -1573,8 +1578,32 @@ static void gui_paint_cat_view(gui_t *gui)
 			}
 		}
 		if (sText != NULL) {
+			SDL_Rect headerSrc = { 0, 0, 0, 0};
 			SDL_Rect headerDest = {40, 40, 0, 0};
-			SDL_BlitSurface(sText, NULL, gui->screen, &headerDest);
+
+			headerSrc.w = sText->w;
+			headerSrc.h = sText->h;
+			if (sText->w > (gui->screen->w - 2 * headerDest.x)) {
+				headerSrc.w = gui->screen->w - 2 * headerDest.x;
+				cat->scrollpos += cat->scrolldir;
+				headerSrc.x = cat->scrollpos;
+				if (cat->scrollpos <= -headerDest.x) {
+					cat->scrolldir = 1;
+				}
+				if (cat->scrollpos <= 0) {
+					/* Stop some time at position 0. */
+					headerSrc.x = 0;
+				}
+				if ((sText->w - cat->scrollpos) < (headerSrc.w - headerDest.x)) {
+					cat->scrolldir = -1;
+				}
+				if ((sText->w - cat->scrollpos) < headerSrc.w) {
+					/* Stop some time at the end. */
+					headerSrc.x = sText->w - headerSrc.w;
+				}
+			}
+
+			SDL_BlitSurface(sText, &headerSrc, gui->screen, &headerDest);
 			SDL_FreeSurface(sText);
 			sText = NULL;
 		}
@@ -1826,11 +1855,19 @@ static void gui_paint_main_view(gui_t *gui)
 					if (scroll) {
 						headerSrc.x = entry->pos;
 						entry->pos += entry->dir;
-						if ((image->w - entry->pos) < headerSrc.w) {
+						if ((image->w - entry->pos) < (headerSrc.w - BORDER_X)) {
 							entry->dir = -1;
 						}
-						if (entry->pos == 0) {
+						if ((image->w - entry->pos) < headerSrc.w) {
+							/* Stop some time at the end. */
+							headerSrc.x = image->w - headerSrc.w;
+						}
+						if (entry->pos <= -BORDER_X) {
 							entry->dir = 1;
+						}
+						if (entry->pos <= 0) {
+							/* Stop some time at position 0. */
+							headerSrc.x = 0;
 						}
 					} else {
 						rcDest.x = BORDER_X;
