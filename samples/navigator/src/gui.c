@@ -264,6 +264,10 @@ struct gui_menu_entry_s {
 	char *playlistid;
 	/** Channel ID of this entry. */
 	char *channelid;
+	/** Scroll position. */
+	int pos;
+	/** Scroll direction. */
+	int dir;
 
 	/** Next menu entry. */
 	gui_menu_entry_t *next;
@@ -661,6 +665,9 @@ static gui_menu_entry_t *gui_menu_entry_alloc(gui_t *gui, gui_menu_entry_t **lis
 		return NULL;
 	}
 	memset(rv, 0, sizeof(*rv));
+
+	rv->dir = 1;
+	rv->pos = 0;
 
 	if (listhead == &gui->mainmenu) {
 		if (gui->selectedmenu == NULL) {
@@ -1717,33 +1724,54 @@ static void gui_paint_main_view(gui_t *gui)
 {
 	SDL_Rect rcDest = { BORDER_X /* X pos */, 90 /* Y pos */, 0, 0 };
 	gui_menu_entry_t *entry;
-	static int pos = 0;
-	static int dir = 1;
 
 	entry = gui->selectedmenu;
 	while(entry != NULL) {
+		SDL_Rect headerSrc = { 0, 0, 0, 0 };
+
 		if ((entry->textimg == NULL) && (entry->title != NULL)) {
 			entry->textimg = gui_printf(gui->font, entry->textimg, entry->title);
 		}
 		if (entry->textimg != NULL) {
 			int maxHeight;
 			SDL_Surface *image;
+			int scroll = 0;
 
 			image = entry->textimg;
 			maxHeight = image->h;
 
 			if ((gui->description_pos - gui->mindistance) >= (rcDest.y + image->h)) {
+				headerSrc.h = image->h;
+				headerSrc.w = image->w;
+				if ((headerSrc.w + BORDER_X) > (gui->screen->w - BORDER_X)) {
+					headerSrc.w = gui->screen->w - 2 * BORDER_X;
+					scroll = 1;
+				}
+
 				if (entry == gui->selectedmenu) {
-					rcDest.x = BORDER_X + pos;
-					pos += dir;
-					if (pos == 2) {
-						dir = -1;
-					}
-					if (pos == 0) {
-						dir = 1;
+					if (scroll) {
+						headerSrc.x = entry->pos;
+						entry->pos += entry->dir;
+						if ((image->w - entry->pos) < headerSrc.w) {
+							entry->dir = -1;
+						}
+						if (entry->pos == 0) {
+							entry->dir = 1;
+						}
+					} else {
+						rcDest.x = BORDER_X;
+						entry->pos += entry->dir;
+						if (entry->pos >= 100) {
+							entry->dir = -1;
+						}
+						if (entry->pos == 0) {
+							entry->dir = 1;
+						}
 					}
 				}
-				SDL_BlitSurface(image, NULL, gui->screen, &rcDest);
+				if (scroll || (entry->pos <= 50)) {
+					SDL_BlitSurface(image, &headerSrc, gui->screen, &rcDest);
+				}
 				rcDest.x = BORDER_X;
 				rcDest.y += maxHeight + BORDER_Y;
 			}
