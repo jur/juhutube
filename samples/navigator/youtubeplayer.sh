@@ -45,6 +45,9 @@ if [ -e "/dev/ps2gs" ]; then
 	# Playstation 2 video driver is available
 	# Use it, because it is faster:
 	export SDL_VIDEODRIVER="ps2gs"
+	# Some video need more than one YUV overlay which is not supported by
+	# ps2gs, so disable it.
+	export SDL_VIDEO_YUV_HWACCEL="0"
 fi
 
 if [ -x "$PROGRAM" ]; then
