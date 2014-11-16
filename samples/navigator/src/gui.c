@@ -120,6 +120,7 @@ enum gui_state {
 	GUI_STATE_MAIN_MENU,
 	GUI_STATE_POWER_OFF,
 	GUI_STATE_MENU_PLAYLIST,
+	GUI_STATE_TIMEOUT,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -154,6 +155,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_MAIN_MENU)
 		CASESTATE(GUI_STATE_POWER_OFF)
 		CASESTATE(GUI_STATE_MENU_PLAYLIST)
+		CASESTATE(GUI_STATE_TIMEOUT)
 	}
 	return "unknown";
 }
@@ -3503,13 +3505,14 @@ static void save_menu_state(gui_t *gui)
 /**
  * Main loop for GUI.
  */
-int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr, int menunr)
+int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr, int menunr, int timer)
 {
 	int done;
 	SDL_Event event;
 	enum gui_state state;
 	enum gui_state getstate;
 	enum gui_state prevstate;
+	enum gui_state restorestate;
 	enum gui_state nextstate;
 	enum gui_state afterplayliststate;
 	unsigned int wakeupcount;
@@ -3517,6 +3520,8 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 	int rv;
 	int foundvid = 0;
 	const char *lastcatpagetoken;
+	int timeoutcounter = 0;
+	char *oldstatusmsg = NULL;
 
 	getstate = origgetstate;
 	LOG("videopagetoken %s at startup\n", videopagetoken);
@@ -3624,6 +3629,19 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 				case SDL_KEYDOWN:
 					retval = 0;
+					/* Reset timeout on key press. */
+					timeoutcounter = 0;
+					if (state == GUI_STATE_TIMEOUT) {
+						/* restore previous state. */
+						state = restorestate;
+						if (gui->statusmsg != NULL) {
+							free(gui->statusmsg);
+							gui->statusmsg = NULL;
+						}
+						gui->statusmsg = oldstatusmsg;
+						wakeupcount = 0;
+					}
+
 					/* Don't wait when a key is pressed. */
 					wakeupcount = 0;
 					/* Key pressed on keyboard. */
@@ -4884,6 +4902,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 				break;
 
 			case GUI_STATE_POWER_OFF:
+			case GUI_STATE_TIMEOUT:
 				done = 1;
 				retval = 4;
 				break;
@@ -4937,6 +4956,42 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 		/* Paint GUI elements. */
 		gui_paint(gui, state);
+
+		/* Check timer for power off. */
+		timeoutcounter++;
+		if (!done && (timer > 0)) {
+			if (timeoutcounter > timer) {
+				switch (state) {
+				case GUI_STATE_RUNNING:
+				case GUI_STATE_MAIN_MENU:
+					prevstate = state;
+					restorestate = state;
+					state = GUI_STATE_TIMEOUT;
+					LOG("Enter new state %d %s (triggered by timeout).\n", state, get_state_text(state));
+
+					oldstatusmsg = gui->statusmsg;
+					gui->statusmsg = buf_printf(NULL, "Timeout powering off.");
+					wakeupcount = 3 * DEFAULT_SLEEP;
+					break;
+
+				case GUI_STATE_POWER_OFF:
+				case GUI_STATE_TIMEOUT:
+					/* Already powering off. */
+					break;
+
+				default:
+					LOG_ERROR("Force power off by timeout in state %d %s.\n", state, get_state_text(state));
+					/* Power off. */
+					done = 1;
+					retval = 4;
+					break;
+				}
+			}
+		}
+	}
+	if (oldstatusmsg != NULL) {
+		free(oldstatusmsg);
+		oldstatusmsg = NULL;
 	}
 	save_menu_state(gui);
 	return retval;

@@ -22,6 +22,9 @@
 #include "gui.h"
 #include "transfer.h"
 
+/** Timeout for power off is around 5 minutes. */
+#define DEFAULT_TIMEOUT (8 * 300)
+
 /**
  * Entry point for the application.
  *
@@ -49,10 +52,11 @@ int main(int argc, char *argv[])
 	int retval = 0;
 	int menunr = 0;
 	int fullscreen = 0;
+	int timer = DEFAULT_TIMEOUT;
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:e:f")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:e:fT:")) != -1) {
 		switch(c) {
 			case 'o':
 				/* Prefix for images. */
@@ -120,6 +124,10 @@ int main(int argc, char *argv[])
 				fullscreen = 1;
 				break;
 
+			case 'T':
+				timer = strtol(optarg, NULL, 0);
+				break;
+
 			default:
 				return 1;
 				break;
@@ -146,7 +154,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* Call the GUI main processing loop. */
-	retval = gui_loop(gui, retval, state, videofile, channelid, playlistid, catpagetoken, videoid, catnr, channelnr, videopagetoken, vidnr, menunr);
+	retval = gui_loop(gui, retval, state, videofile, channelid, playlistid, catpagetoken, videoid, catnr, channelnr, videopagetoken, vidnr, menunr, timer);
 
 	gui_free(gui);
 	gui = NULL;

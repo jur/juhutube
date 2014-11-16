@@ -13,6 +13,6 @@ typedef struct gui_cat_s gui_cat_t;
  */
 gui_t *gui_alloc(const char *sharedir, int fullscreen);
 void gui_free(gui_t *gui);
-int gui_loop(gui_t *gui, int retval, int getstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr, int menunr);
+int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr, int menunr, int timer);
 
 #endif
