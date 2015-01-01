@@ -177,6 +177,17 @@ static jt_access_token_t *jt_alloc_internal(FILE *logfd, FILE *errfd,
 
 	if (flags & JT_FLAG_NO_CERT) {
 		curl_easy_setopt(at->transfer.curl, CURLOPT_SSL_VERIFYPEER, 0L);
+	} else {
+		const char *capath;
+
+		capath = getenv("SSL_CERT_PATH");
+		if (capath != NULL) {
+			curl_easy_setopt(at->transfer.curl, CURLOPT_CAPATH, capath);
+		}
+		capath = getenv("SSL_CERT_FILE");
+		if (capath != NULL) {
+			curl_easy_setopt(at->transfer.curl, CURLOPT_CAINFO, capath);
+		}
 	}
 	if (flags & JT_FLAG_NO_HOST_CHECK) {
 		curl_easy_setopt(at->transfer.curl, CURLOPT_SSL_VERIFYHOST, 0L);
