@@ -53,6 +53,7 @@ void transfer_cleanup(void)
 transfer_t *transfer_alloc(void)
 {
 	transfer_t *transfer;
+	const char *capath;
 
 	transfer = malloc(sizeof(*transfer));
 	if (transfer == NULL) {
@@ -70,6 +71,15 @@ transfer_t *transfer_alloc(void)
 #ifdef NOVERIFYCERT
 	curl_easy_setopt(transfer->curl, CURLOPT_SSL_VERIFYPEER, 0L);
 #endif
+
+	capath = getenv("SSL_CERT_PATH");
+	if (capath != NULL) {
+		curl_easy_setopt(transfer->curl, CURLOPT_CAPATH, capath);
+	}
+	capath = getenv("SSL_CERT_FILE");
+	if (capath != NULL) {
+		curl_easy_setopt(transfer->curl, CURLOPT_CAINFO, capath);
+	}
 
 	return transfer;
 }

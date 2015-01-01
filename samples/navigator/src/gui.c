@@ -18,7 +18,32 @@
 #define SECRET_FILE ".client_secret.json"
 #define TITLE_FILE ".accounttitle"
 #define MENU_STATE_FILE ".menustate"
+#if 0
+#define BTN_SQUARE SDLK_s
+#define BTN_CROSS SDLK_SPACE
+#define BTN_CIRCLE SDLK_ESCAPE
+#define BTN_TRIANGLE SDLK_r
+#define BTN_START SDLK_RETURN
+#define BTN_SELECT SDLK_a
+#define BTN_L1 SDLK_HOME
+#define BTN_R1 SDLK_END
+#define BTN_L2 SDLK_PAGEUP
+#define BTN_R2 SDLK_PAGEDOWN
+#define BTN_UNUSED SDLK_l
+#else
 
+#define BTN_SQUARE SDLK_HOME
+#define BTN_CROSS SDLK_PAGEDOWN
+#define BTN_CIRCLE SDLK_END
+#define BTN_TRIANGLE SDLK_PAGEUP
+#define BTN_START SDLK_LALT
+#define BTN_SELECT SDLK_LCTRL
+#define BTN_L1 SDLK_RSHIFT
+#define BTN_R1 SDLK_RCTRL
+#define BTN_L2 SDLK_i
+#define BTN_R2 SDLK_u
+#define BTN_UNUSED SDLK_l
+#endif
 /** Maximum images loaded while painting. */
 #define MAX_LOAD_WHILE_PAINT 1
 /** Maximum retry count for images. */
@@ -1128,6 +1153,10 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen)
 	}
 	if (gui->font == NULL) {
 		LOG_ERROR("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
+		gui->font = TTF_OpenFont("/usr/share/fonts/truetype/DejaVuSans-Bold.ttf", 36);
+	}
+	if (gui->font == NULL) {
+		LOG_ERROR("Failed to load font.\n");
 		gui_free(gui);
 		return NULL;
 	}
@@ -1144,6 +1173,10 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen)
 	}
 	if (gui->smallfont == NULL) {
 		LOG_ERROR("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
+		gui->smallfont = TTF_OpenFont("/usr/share/fonts/truetype/DejaVuSans-Bold.ttf", 16);
+	}
+	if (gui->smallfont == NULL) {
+		LOG_ERROR("Failed to load font.\n");
 		gui_free(gui);
 		return NULL;
 	}
@@ -3618,37 +3651,37 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 				case SDL_JOYBUTTONDOWN:
 					switch(event.jbutton.button) {
 						case 0: /* Square */
-							key = SDLK_s;
+							key = BTN_SQUARE;
 							break;
 						case 9: /* Start */
-							key = SDLK_RETURN;
+							key = BTN_START;
 							break;
 						case 1: /* Cross */
 							/* Play playlist */
-							key = SDLK_SPACE;
+							key = BTN_CROSS;
 							break;
 						case 2: /* Triangle */
 							/* Play playlist backwards */
-							key = SDLK_r;
+							key = BTN_TRIANGLE;
 							break;
 						case 8: /* Select */
-							key = SDLK_a;
+							key = BTN_SELECT;
 							break;
 						case 3: /* Circle */
 							/* Select playllist */
-							key = SDLK_ESCAPE;
+							key = BTN_CIRCLE;
 							break;
 						case 4: /* L1 */
-							key = SDLK_HOME;
+							key = BTN_L1;
 							break;
 						case 5: /* R1 */
-							key = SDLK_END;
+							key = BTN_R1;
 							break;
 						case 6: /* L2 */
-							key = SDLK_PAGEUP;
+							key = BTN_L2;
 							break;
 						case 7: /* R2 */
-							key = SDLK_PAGEDOWN;
+							key = BTN_R2;
 							break;
 						default:
 							key = SDLK_l;
@@ -3675,7 +3708,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 					wakeupcount = 0;
 					/* Key pressed on keyboard. */
 					switch(key) {
-						case SDLK_a:
+						case BTN_SELECT:
 							if (curstate == GUI_STATE_RUNNING) {
 								gui_cat_t *cat;
 
@@ -3692,7 +3725,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 								}
 							}
 							break;
-						case SDLK_SPACE:
+						case BTN_CROSS:
 							if (state == GUI_STATE_WAIT_FOR_CONTINUE) {
 								state = GUI_RESET_STATE;
 								break;
@@ -3707,7 +3740,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 								}
 								break;
 							}
-						case SDLK_r:
+						case BTN_TRIANGLE:
 							if (curstate == GUI_STATE_MAIN_MENU) {
 								gui_menu_entry_t *entry;
 
@@ -3727,7 +3760,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 								}
 								break;
 							}
-						case SDLK_RETURN: {
+						case BTN_START: {
 							if (curstate == GUI_STATE_RUNNING) {
 								gui_cat_t *cat;
 
@@ -3750,10 +3783,10 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 												done = 1;
 											}
 											if (ret == 0) {
-												if (key == SDLK_RETURN) {
+												if (key == BTN_START) {
 													/* Play current video only. */
 													retval = 1;
-												} else if (key == SDLK_SPACE) {
+												} else if (key == BTN_CROSS) {
 													/* Play playlist. */
 													retval = 2;
 												} else {
@@ -3770,7 +3803,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							break;
 						}
 
-						case SDLK_s: {
+						case BTN_SQUARE: {
 							if (state == GUI_STATE_MAIN_MENU) {
 								state = GUI_STATE_POWER_OFF;
 								break;
@@ -3800,7 +3833,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							break;
 						}
 
-						case SDLK_ESCAPE: {
+						case BTN_CIRCLE: {
 							if (state == GUI_STATE_WAIT_FOR_CONTINUE) {
 								state = GUI_STATE_POWER_OFF;
 								break;
@@ -3928,7 +3961,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							}
 							break;
 
-						case SDLK_HOME:
+						case BTN_L1:
 							if (gui->statusmsg == NULL) {
 								gui_cat_t *cat;
 
@@ -3941,7 +3974,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							}
 							break;
 
-						case SDLK_END:
+						case BTN_R1:
 							if (gui->statusmsg == NULL) {
 								gui_cat_t *cat;
 
@@ -4058,7 +4091,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							}
 							break;
 
-						case SDLK_PAGEUP:
+						case BTN_L2:
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->categories != NULL) {
 									gui_cat_t *cat;
@@ -4074,7 +4107,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							}
 							break;
 
-						case SDLK_PAGEDOWN:
+						case BTN_R2:
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->categories != NULL) {
 									gui_cat_t *cat;
