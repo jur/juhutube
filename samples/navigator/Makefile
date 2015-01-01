@@ -2,7 +2,8 @@ LIBJTBASEDIR = ../..
 include $(LIBJTBASEDIR)/libjt.mk
 
 MACHINE = $(shell $(CC) -dumpmachine)
-BUILDROOT_MACHINE = $(shell echo "$(MACHINE)" | grep -e buildroot)
+HOSTMACHINE = $(shell uname -m)
+BUILDHOSTMACHINE = $(shell echo "$(MACHINE)" | grep -e "$(HOSTMACHINE)")
 OBJDIR = obj-$(MACHINE)
 DEPDIR = dep-$(MACHINE)
 BINDIR = bin-$(MACHINE)
@@ -17,14 +18,38 @@ PROGRAM = $(BINDIR)/ytnavigator
 
 CPPFLAGS += -I../include
 CPPFLAGS += -DDEBUG -g
-LDLIBS += -lSDL -lSDL_image -lSDL_ttf
 BFDTARGET = $(shell LANG=C $(OBJCOPY) --help | grep -e "supported targets:" | sed -e 's-^.*supported targets: *--g' | cut -d ' ' -f 1)
 BFDARCH = $(shell LANG=C $(OBJDUMP) --help | grep -e "supported architectures:" | sed -e 's-^.*supported architectures: *--g' | cut -d ' ' -f 1)
+VERIFYCERT = yes
+
+ifneq ($(VERIFYCERT),yes)
+CPPFLAGS += -DNOVERIFYCERT
+endif
+
+ifneq ($(shell pkg-config --exists sdl; echo -n $$?),0)
+$(error sdl not found)
+else
+PKGS += sdl
+endif
+ifneq ($(shell pkg-config --exists SDL_image; echo -n $$?),0)
+$(error SDL_image not found)
+else
+PKGS += SDL_image
+endif
+ifneq ($(shell pkg-config --exists SDL_ttf; echo -n $$?),0)
+#$(error SDL_ttf not found)
+LDLIBS += -lSDL_ttf
+else
+PKGS += SDL_ttf
+endif
+CPPFLAGS += $(shell pkg-config --cflags $(PKGS))
+LDLIBS += $(shell pkg-config --libs $(PKGS))
 
 .PHONY: test all clean
 
-ifeq ($(BUILDROOT_MACHINE),)
+ifneq ($(BUILDHOSTMACHINE),)
 test: all
+	echo $(BUILDHOSTMACHINE)
 	mkdir -p $(TESTDIR)
 	(cd $(TESTDIR) && bash -x ../youtubeplayer.sh ../$(PROGRAM) ../pictures)
 endif

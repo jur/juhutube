@@ -1082,6 +1082,8 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen)
 	int i;
 	int found;
 	Uint32 flags;
+	char *filename = NULL;
+	int ret;
 
 	flags = 0;
 	if (fullscreen) {
@@ -1113,14 +1115,35 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen)
 		return NULL;
 	}
 
-	gui->font = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", 36);
+	ret = asprintf(&filename, "%s/FreeSansBold.ttf", gui->sharedir);
+	if (ret == -1) {
+		return NULL;
+	}
+	gui->font = TTF_OpenFont(filename, 36);
+	free(filename);
+	filename = NULL;
+
 	if (gui->font == NULL) {
+		gui->font = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", 36);
+	}
+	if (gui->font == NULL) {
+		LOG_ERROR("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
 		gui_free(gui);
 		return NULL;
 	}
 
-	gui->smallfont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", 16);
+	ret = asprintf(&filename, "%s/FreeSansBold.ttf", gui->sharedir);
+	if (ret == -1) {
+		return NULL;
+	}
+	gui->smallfont = TTF_OpenFont(filename, 36);
+	free(filename);
+	filename = NULL;
 	if (gui->smallfont == NULL) {
+		gui->smallfont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", 16);
+	}
+	if (gui->smallfont == NULL) {
+		LOG_ERROR("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
 		gui_free(gui);
 		return NULL;
 	}
@@ -1130,6 +1153,8 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen)
 		gui->screen = SDL_SetVideoMode(info->current_w, info->current_h, 16, SDL_SWSURFACE | SDL_ANYFORMAT | flags);
 	if (gui->screen == NULL)
 		gui->screen = SDL_SetVideoMode(640, 480, 16, SDL_SWSURFACE | SDL_ANYFORMAT | flags);
+	if (gui->screen == NULL)
+		gui->screen = SDL_SetVideoMode(640, 480, 32, SDL_SWSURFACE | SDL_ANYFORMAT | flags);
 	if (gui->screen == NULL) {
 		LOG_ERROR("Couldn't set 640x480x16 video mode: %s\n", SDL_GetError());
 		gui_free(gui);
@@ -1226,6 +1251,7 @@ static jt_access_token_t *alloc_token(int nr)
 	char *secretfile = NULL;
 #endif
 	int ret;
+	int flags = 0;
 
 	home = getenv("HOME");
 	if (home == NULL) {
@@ -1259,10 +1285,13 @@ static jt_access_token_t *alloc_token(int nr)
 	}
 #endif
 
+#ifdef NOVERIFYCERT
+	flags |= JT_FLAG_NO_CERT;
+#endif
 #ifdef CLIENT_SECRET
-	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, 0);
+	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, flags);
 #else
-	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, 0);
+	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, flags);
 #endif
 	free(tokenfile);
 	tokenfile = NULL;

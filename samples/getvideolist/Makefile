@@ -2,7 +2,8 @@ LIBJTBASEDIR = ../..
 include $(LIBJTBASEDIR)/libjt.mk
 
 MACHINE = $(shell $(CC) -dumpmachine)
-BUILDROOT_MACHINE = $(shell echo "$(MACHINE)" | grep -e buildroot)
+HOSTMACHINE = $(shell uname -m)
+BUILDHOSTMACHINE = $(shell echo "$(MACHINE)" | grep -e "$(HOSTMACHINE)")
 OBJDIR = obj-$(MACHINE)
 DEPDIR = dep-$(MACHINE)
 BINDIR = bin-$(MACHINE)
@@ -18,7 +19,7 @@ CPPFLAGS += -DDEBUG -g
 
 .PHONY: test all install clean
 
-ifeq ($(BUILDROOT_MACHINE),)
+ifneq ($(BUILDHOSTMACHINE),)
 test: all
 	mkdir -p $(TESTDIR)
 	(cd $(TESTDIR) && ../$(PROGRAM))

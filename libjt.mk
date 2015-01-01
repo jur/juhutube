@@ -18,24 +18,23 @@ OBJCOPY=$(CROSS_COMPILE)objcopy
 STRIP=$(CROSS_COMPILE)strip
 
 MACHINE = $(shell $(CC) -dumpmachine)
-JSONC = $(shell LANG=C $(CC) -E -v - </dev/null 2>&1 1>/dev/null | sed -e "1,/\#include <...>/d" -e "/End of search list/,\$$d" | while read dir; do if [ -d $$dir/json-c ]; then echo yes; fi; done)
 LIBJTDIR = $(LIBJTBASEDIR)/libjt/lib-$(MACHINE)
 LIBJT = $(LIBJTDIR)/libjt.a
 
-CPPFLAGS += -W -Wall -Werror-implicit-function-declaration -Wuninitialized
+CPPFLAGS += -W -Wall -Werror-implicit-function-declaration
 CPPFLAGS += -std=gnu99 -Iinclude
 CPPFLAGS += -I$(LIBJTBASEDIR)/libjt/include
 LDFLAGS += -L$(LIBJTDIR)
 LDLIBS += $(LIBJT)
-LDLIBS += -lcurl
-ifeq ($(JSONC),)
-LDLIBS += -ljson
-else
-# buldroot uses a different name for the library
-LDLIBS += -ljson-c
-CPPFLAGS += -DJSONC=1
+LDLIBS += $(shell pkg-config --libs json openssl libcurl)
+CPPFLAGS += $(shell pkg-config --cflags json openssl libcurl)
+
+ifneq ($(shell pkg-config --exists json; echo -n $$?),0)
+$(error json not found)
 endif
-LDLIBS += -lssl -lcrypto -ldl -lz
+ifneq ($(shell pkg-config --exists libcurl; echo -n $$?),0)
+$(error libcurl not found)
+endif
 
 CHROOTDIR =
 PREFIX = /usr/local

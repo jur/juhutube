@@ -67,6 +67,9 @@ transfer_t *transfer_alloc(void)
 	}
 	curl_easy_setopt(transfer->curl, CURLOPT_WRITEFUNCTION, mem_callback);
 	curl_easy_setopt(transfer->curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+#ifdef NOVERIFYCERT
+	curl_easy_setopt(transfer->curl, CURLOPT_SSL_VERIFYPEER, 0L);
+#endif
 
 	return transfer;
 }
