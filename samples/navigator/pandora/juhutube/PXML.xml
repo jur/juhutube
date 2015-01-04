@@ -1,0 +1,42 @@
+<PXML xmlns="http://openpandora.org/namespaces/PXML">
+ 	<package id="juhutube-jur.001">
+ 		<author name="Juergen Urban" website="https://github.com/jur/juhutube"/>
+ 		<version major="1" minor="2" release="1" build="1" type="release"/>
+ 		<titles>
+ 			<title lang="en_US">
+				Juhutube
+ 			</title>
+ 		</titles>
+ 		<descriptions>
+ 			<description lang="en_US">
+				Juhutube is a YouTube navigation and player application for the Open Pandora.
+ 			</description>
+ 		</descriptions>
+ 		<icon src="./icon.png"/>
+ 	</package>
+ 	<application id="juhutube-jur.001" appdata="juhutube">
+ 		<author name="Juergen Urban" website="https://github.com/jur/juhutube"/>
+ 		<version major="1" minor="2" release="1" build="1" type="release"/>
+ 		<title lang="en_US">
+			Juhutube
+ 		</title>
+ 		<description lang="en_US">
+			Juhutube is a YouTube navigation and player application for the Open Pandora.
+			You need to login with yout YouTube account to be able ti use it.
+ 		</description>
+ 		<icon src="./icon.png"/>
+ 		<exec command="./bin/start.sh" background="0" standalone="1" x11="req"/>
+ 		<osversion major="2" minor="6" release="0" build="0"/>
+ 		<licenses>
+ 			<license name="BSD" url="http://www.debian.org/misc/bsd.license" sourcecodeurl="https://github.com/jur/juhutube.git"/>
+ 		</licenses>
+ 		<previewpics>
+ 			<pic src="/screenshots/screenshot01.png"/>
+ 		</previewpics>
+		<categories>
+			<category name="AudioVideo">
+				<subcategory name="VideoStreaming"/>
+			</category>
+		</categories>
+	</application>
+</PXML>

@@ -1559,6 +1559,25 @@ int jt_get_video(jt_access_token_t *at, const char *videoid)
 	return rv;
 }
 
+int jt_search_video(jt_access_token_t *at, const char *searchterm, const char *pageToken)
+{
+	int rv;
+
+	LOG("%s()\n", __FUNCTION__);
+
+	rv = jt_load_json_refreshing(at, NULL,
+#ifdef DEBUG
+		"videosearch.json",
+#else
+		NULL,
+#endif
+		"https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=%s&maxResults=5&pageToken=%s",
+		searchterm,
+		pageToken);
+
+	return rv;
+}
+
 static int jt_load_token_file(jt_access_token_t *at, const char *filename)
 {
 	void *mem;

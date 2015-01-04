@@ -23,6 +23,7 @@ LIBJT = $(LIBJTDIR)/libjt.a
 
 CPPFLAGS += -W -Wall -Werror-implicit-function-declaration
 CPPFLAGS += -std=gnu99 -Iinclude
+#CPPFLAGS += -DDEBUG
 CPPFLAGS += -I$(LIBJTBASEDIR)/libjt/include
 LDFLAGS += -L$(LIBJTDIR)
 LDLIBS += $(LIBJT)

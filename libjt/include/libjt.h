@@ -326,6 +326,21 @@ int jt_get_playlist_items(jt_access_token_t *at, const char *playlistid, const c
 int jt_get_video(jt_access_token_t *at, const char *videoid);
 
 /**
+ * Search videos.
+ * The function will automatically refresh access tokens when needed.
+ *
+ * @param searchterm Regular expression (NOT(-), OR(|)).
+ * @return JT_OK On success.
+ * @return JT_TRANSFER_ERROR When an HTTPS transfer error happened. Wrong
+ *         certificate, no DNS and other errors.
+ * @return JT_AUTH_ERROR When permission denied.
+ * @return JT_ERROR_ACCESS_TOKEN When jt_get_token() or jt_load_token() wasn't
+ *         called.
+ * @return JT_PROTOCOL_ERROR Protocol error.
+ */
+int jt_search_video(jt_access_token_t *at, const char *searchterm, const char *pageToken);
+
+/**
  * Returns the user code. The user needs to enter this code at the verification
  * URL to allow access for the application; i.e. the user needs the web browser
  * on a different device like a computer.

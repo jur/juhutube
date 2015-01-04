@@ -1,6 +1,6 @@
 #!/bin/ash
 #set -x
-DEFAULTPREFIX="/usr"
+DEFAULTPREFIX="$HOME"
 DEFAULTSHAREDIR="$DEFAULTPREFIX/share/ytnavigator"
 SHAREDIR="$2"
 if [ -z "$SHAREDIR" ]; then
@@ -66,7 +66,11 @@ if [ -x "$PROGRAM" ]; then
 		fi
 
 		if [ "$RETVAL" = "4" ]; then
-			halt
+			if [ "$(whoami)" = "root" ]; then
+				halt
+			else
+				sudo halt
+			fi
 			break
 		fi
 
@@ -81,25 +85,41 @@ if [ -x "$PROGRAM" ]; then
 			echo
 			echo "      Getting URL..."
 			echo
-			echo "      Hold O for 1 second to cancel"
-			echo
+			if [ -e "/proc/ps2pad" ]; then
+				echo "      Hold O for 1 second to cancel"
+				echo
+			fi
 			URLFILE="/tmp/url.$$"
 			rm -f "$URLFILE"
 			youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE" &
 			YDLPID=$!
-			checkforcross $YDLPID &
-			CHECKPID=$!
+			if [ -e "/proc/ps2pad" ]; then
+				checkforcross $YDLPID &
+				CHECKPID=$!
+			fi
 			wait $YDLPID
 			URL="$(cat $URLFILE)"
 			rm -f "$URLFILE"
-			kill $CHECKPID 2>/dev/null
+			if [ -e "/proc/ps2pad" ]; then
+				kill $CHECKPID 2>/dev/null
+			else
+				echo
+			fi
 			if [ $? -eq 0 ]; then
 				echo "      Starting player..."
 				echo
 				if [ $USE_WGET -ne 0 ]; then
-					curl --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
+					CURL_PARAM=
+					if [ "$SSL_CERT_PATH" != "" ]; then
+						CURL_PARAM="--capath $SSL_CERT_PATH"
+					fi
+					curl $CURL_PARAM --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
 				else
-					wget --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
+					WGET_PARAM=
+					if [ "$SSL_CERT_PATH" != "" ]; then
+						WGET_PARAM="--ca-directory=$SSL_CERT_PATH"
+					fi
+					wget $WGET_PARAM --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
 				fi
 			else
 				echo "      Failed to get URL."

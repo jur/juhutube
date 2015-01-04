@@ -18,7 +18,9 @@
 #define SECRET_FILE ".client_secret.json"
 #define TITLE_FILE ".accounttitle"
 #define MENU_STATE_FILE ".menustate"
-#if 0
+#if 1
+
+/* Buttons for PS2 and normal Linux. */
 #define BTN_SQUARE SDLK_s
 #define BTN_CROSS SDLK_SPACE
 #define BTN_CIRCLE SDLK_ESCAPE
@@ -32,6 +34,7 @@
 #define BTN_UNUSED SDLK_l
 #else
 
+/* Buttons for Open Pandora. */
 #define BTN_SQUARE SDLK_HOME
 #define BTN_CROSS SDLK_PAGEDOWN
 #define BTN_CIRCLE SDLK_END
