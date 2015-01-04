@@ -46,6 +46,7 @@ int main(int argc, char *argv[])
 	const char *videoid = NULL;
 	const char *playlistid = NULL;
 	const char *channelid = NULL;
+	const char *searchterm = NULL;
 	const char *videopagetoken = NULL;
 	const char *sharedir = "/usr/share/ytnavigator";
 	int state = 0;
@@ -56,7 +57,7 @@ int main(int argc, char *argv[])
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:e:fT:")) != -1) {
+	while((c = getopt (argc, argv, "l:sv:k:i:n:m:t:u:p:r:c:j:o:e:fT:S:")) != -1) {
 		switch(c) {
 			case 'o':
 				/* Prefix for images. */
@@ -128,6 +129,10 @@ int main(int argc, char *argv[])
 				timer = strtol(optarg, NULL, 0);
 				break;
 
+			case 'S':
+				searchterm = optarg;
+				break;
+
 			default:
 				return 1;
 				break;
@@ -147,14 +152,14 @@ int main(int argc, char *argv[])
 
 	transfer_init();
 
-	gui = gui_alloc(sharedir, fullscreen);
+	gui = gui_alloc(sharedir, fullscreen, searchterm);
 	if (gui == NULL) {
 		LOG_ERROR("Failed to intialize GUI.\n");
 		return -2;
 	}
 
 	/* Call the GUI main processing loop. */
-	retval = gui_loop(gui, retval, state, videofile, channelid, playlistid, catpagetoken, videoid, catnr, channelnr, videopagetoken, vidnr, menunr, timer);
+	retval = gui_loop(gui, retval, state, videofile, channelid, searchterm, playlistid, catpagetoken, videoid, catnr, channelnr, videopagetoken, vidnr, menunr, timer);
 
 	gui_free(gui);
 	gui = NULL;

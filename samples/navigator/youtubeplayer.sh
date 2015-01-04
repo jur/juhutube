@@ -13,17 +13,6 @@ if [ -z "$PROGRAM" ]; then
 fi
 echo "      Initializing..."
 AGENT="$(youtube-dl --dump-user-agent)"
-which ffplay >/dev/null
-if [ $? -eq 0 ]; then
-	PLAYER="ffplay -fs -autoexit -"
-else
-	if [ "$DISPLAY" = "" ]; then
-		PLAYER="mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -"
-	else
-		PLAYER="mplayer -cache 1024 -"
-	fi
-fi
-
 checkforcross()
 {
 	# Wait until the CROSS button is pressed.
@@ -40,6 +29,37 @@ checkforcross()
 # Prefer wget, because it has less problems than curl.
 which wget >/dev/null
 USE_WGET=$?
+which valgrind >/dev/null
+USE_DBGPRG=$?
+#USE_DBGPRG=1
+if [ $USE_DBGPRG -eq 0 ]; then
+	DBGPRG="valgrind --leak-check=yes"
+	FULLSCREEN=""
+	LOGFILE="log.txt"
+	# Log to file and disable shutdown.
+	LOGOUTPUT="-l $LOGFILE -T 0"
+else
+	DBGPRG=""
+	FULLSCREEN="-f"
+	LOGOUTPUT=""
+fi
+
+which ffplay >/dev/null
+if [ $? -eq 0 ]; then
+	if [ $USE_DBGPRG -eq 0 ]; then
+		# No fullscreen when debugging.
+		PLAYER="ffplay -autoexit -"
+	else
+		PLAYER="ffplay -fs -autoexit -"
+	fi
+else
+	if [ "$DISPLAY" = "" ]; then
+		PLAYER="mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -"
+	else
+		PLAYER="mplayer -cache 1024 -"
+	fi
+fi
+
 
 if [ -e "/dev/ps2gs" ]; then
 	# Playstation 2 video driver is available
@@ -58,11 +78,14 @@ if [ -x "$PROGRAM" ]; then
 		# Use navigator, so that the user can tell which video to play:
 		echo "      Starting navigator"
 		if [ "$RETVAL" != "" ]; then
-			"$PROGRAM" -f -o "$SHAREDIR" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -j "$CHANNELSTART" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID" -e "$SELECTEDMENU"
+			$DBGPRG "$PROGRAM" "$FULLSCREEN" -o "$SHAREDIR" -v "$CFG" -p "$PLAYLISTID" -k "$CATPAGETOKEN" -i "$VIDEOID" -n "$CATNR" -j "$CHANNELSTART" -m "$STATE" -t "$VIDPAGETOKEN" -u "$VIDNR" -r "$RETVAL" -c "$CHANNELID" -e "$SELECTEDMENU" -S "$SEARCHTERM" $LOGOUTPUT
 			RETVAL="$?"
 		else
-			"$PROGRAM" -f -o "$SHAREDIR" -v "$CFG"
+			$DBGPRG "$PROGRAM" "$FULLSCREEN" -o "$SHAREDIR" -v "$CFG" $LOGOUTPUT
 			RETVAL="$?"
+		fi
+		if [ "$LOGFILE" != "" ]; then
+			cat "$LOGFILE"
 		fi
 
 		if [ "$RETVAL" = "4" ]; then

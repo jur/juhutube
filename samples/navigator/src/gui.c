@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdarg.h>
 #include <unistd.h>
@@ -113,6 +115,8 @@
 /** Return string if string parameter is not NULL, otherwise return "(null)". */
 #define CHECKSTR(stringptr) (((stringptr) != NULL) ? (stringptr) : "(null)")
 
+#define MENU_VERSION 1
+
 #define CASESTATE(state) \
 	case state: \
 		return #state;
@@ -149,6 +153,10 @@ enum gui_state {
 	GUI_STATE_POWER_OFF,
 	GUI_STATE_MENU_PLAYLIST,
 	GUI_STATE_TIMEOUT,
+	GUI_STATE_SEARCH,
+	GUI_STATE_SEARCH_PLAYLIST,
+	GUI_STATE_SEARCH_PREV_PLAYLIST,
+	GUI_STATE_SEARCH_ENTER,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -184,6 +192,10 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_POWER_OFF)
 		CASESTATE(GUI_STATE_MENU_PLAYLIST)
 		CASESTATE(GUI_STATE_TIMEOUT)
+		CASESTATE(GUI_STATE_SEARCH)
+		CASESTATE(GUI_STATE_SEARCH_PLAYLIST)
+		CASESTATE(GUI_STATE_SEARCH_PREV_PLAYLIST)
+		CASESTATE(GUI_STATE_SEARCH_ENTER)
 	}
 	return "unknown";
 }
@@ -238,6 +250,8 @@ struct gui_cat_s {
 	char *channelid;
 	/** YouTube playlist ID. */
 	char *playlistid;
+	/** YouTube searchterm. */
+	char *searchterm;
 	/** Pointer to previous category in list. */
 	gui_cat_t *prev;
 	/** Pointer to next category in list. */
@@ -300,6 +314,8 @@ struct gui_menu_entry_s {
 	char *playlistid;
 	/** Channel ID of this entry. */
 	char *channelid;
+	/** Searchterm */
+	char *searchterm;
 	/** Scroll position. */
 	int pos;
 	/** Scroll direction. */
@@ -687,6 +703,10 @@ static void gui_cat_free(gui_t *gui, gui_cat_t *cat)
 			free(cat->playlistid);
 			cat->playlistid = NULL;
 		}
+		if (cat->searchterm != NULL) {
+			free(cat->searchterm);
+			cat->searchterm = NULL;
+		}
 		if (cat->title != NULL) {
 			free(cat->title);
 			cat->title = NULL;
@@ -844,6 +864,10 @@ static void gui_menu_entry_free(gui_t *gui, gui_menu_entry_t *entry)
 			free(entry->channelid);
 			entry->channelid = NULL;
 		}
+		if (entry->searchterm != NULL) {
+			free(entry->searchterm);
+			entry->searchterm = NULL;
+		}
 
 		free(entry);
 		entry = NULL;
@@ -985,6 +1009,7 @@ static void load_menu_state(gui_t *gui)
 	FILE *fin;
 	char *filename;
 	int ret;
+	int menuver = 0;
 
 	home = getenv("HOME");
 	if (home == NULL) {
@@ -1008,62 +1033,207 @@ static void load_menu_state(gui_t *gui)
 
 		buffer = malloc(BUFFER_SIZE);
 		if (buffer != NULL) {
-			int tokennr;
-			char *title = NULL;
-			char *playllistid = NULL;
-			char *channelid = NULL;
+			int error = 0;
 
-			while(!feof(fin)) {
-				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
-					break;
-				}
+			if (fgets(buffer, BUFFER_SIZE, fin) != NULL) {
 				buffer[strlen(buffer) - 1] = 0;
-				if (buffer[0] == 0) {
-					continue;
+				if (strncmp(buffer, "MenuFormat", 10) == 0) {
+					LOG("Detected MenuFormat\n");
+					if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+						LOG_ERROR("Failed to read last menu state.\n");
+						error = 1;
+					} else {
+						menuver = strtol(buffer, NULL, 0);
+						LOG("Detected MenuFormat Version %d\n", menuver);
+						if (menuver > MENU_VERSION) {
+							error = 1;
+							LOG_ERROR("Unsupported MenuFormat %d\n", menuver);
+						}
+					}
+				} else {
+					/* Reset to start of file, because version not detected. */
+					fseek(fin, 0, SEEK_SET);
 				}
-				tokennr = strtol(buffer, NULL, 0);
+			}
 
-				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
-					break;
-				}
-				buffer[strlen(buffer) - 1] = 0;
-				if (buffer[0] == 0) {
-					continue;
-				}
-				title = strdup(buffer);
+			while(!error && !feof(fin)) {
+				gui_menu_entry_t *entry = NULL;
+				enum gui_state state = GUI_STATE_MENU_PLAYLIST;
+				enum gui_state initstate = GUI_STATE_GET_PLAYLIST;
+				int addit = 0;
+				int tokennr;
+				char *title = NULL;
+				char *playllistid = NULL;
+				char *channelid = NULL;
+				char *searchterm = NULL;
 
-				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
-					break;
-				}
-				buffer[strlen(buffer) - 1] = 0;
-				if (buffer[0] == 0) {
-					continue;
-				}
-				playllistid = strdup(buffer);
+				if (menuver >= 1) {
+					if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+						error = 1;
+						break;
+					}
+					/* Get state and initstate. */
+					buffer[strlen(buffer) - 1] = 0;
+					if (buffer[0] == 0) {
+						error = 1;
+						break;
+					}
+					state = strtol(buffer, NULL, 0);
+					LOG("Menu entry has state %d %s (from %s)\n", state, get_state_text(state), buffer);
 
-				if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
-					break;
+					if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+						LOG_ERROR("Failed reading menu.\n");
+						error = 1;
+						break;
+					}
+					buffer[strlen(buffer) - 1] = 0;
+					if (buffer[0] == 0) {
+						error = 1;
+						break;
+					}
+					initstate = strtol(buffer, NULL, 0);
+					LOG("Menu entry has initstate %d %s (from %s)\n", initstate, get_state_text(initstate), buffer);
 				}
-				buffer[strlen(buffer) - 1] = 0;
-				if (buffer[0] == 0) {
-					continue;
+				LOG("Load menu entry for state %d %s\n", state, get_state_text(state));
+				switch(state) {
+					case GUI_STATE_SEARCH:
+						if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						buffer[strlen(buffer) - 1] = 0;
+						if (buffer[0] == 0) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						tokennr = strtol(buffer, NULL, 0);
+
+						if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						buffer[strlen(buffer) - 1] = 0;
+						if (buffer[0] == 0) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						title = strdup(buffer);
+						LOG("Menu entry %s\n", title);
+
+						if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						buffer[strlen(buffer) - 1] = 0;
+						if (buffer[0] == 0) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						searchterm = strdup(buffer);
+						LOG("searchterm %s\n", buffer);
+
+						addit = 1;
+
+						/* Empty line */
+						fgets(buffer, BUFFER_SIZE, fin);
+						buffer[strlen(buffer) - 1] = 0;
+						break;
+
+					case GUI_STATE_MENU_PLAYLIST:
+						if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						buffer[strlen(buffer) - 1] = 0;
+						if (buffer[0] == 0) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						tokennr = strtol(buffer, NULL, 0);
+
+						if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						buffer[strlen(buffer) - 1] = 0;
+						if (buffer[0] == 0) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						title = strdup(buffer);
+						LOG("Menu entry %s\n", buffer);
+
+						if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						buffer[strlen(buffer) - 1] = 0;
+						if (buffer[0] == 0) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						playllistid = strdup(buffer);
+						LOG("playllistid %s\n", buffer);
+
+						if (fgets(buffer, BUFFER_SIZE, fin) == NULL) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						buffer[strlen(buffer) - 1] = 0;
+						if (buffer[0] == 0) {
+							LOG_ERROR("Failed reading menu.\n");
+							error = 1;
+							break;
+						}
+						channelid = strdup(buffer);
+						LOG("channelid %s\n", buffer);
+
+						addit = 1;
+
+						/* Empty line */
+						fgets(buffer, BUFFER_SIZE, fin);
+						buffer[strlen(buffer) - 1] = 0;
+						break;
+					default:
+						LOG("Load menu entry for state %d %s not supported\n", state, get_state_text(state));
+						break;
 				}
-				channelid = strdup(buffer);
 
-				/* Empty line */
-				fgets(buffer, BUFFER_SIZE, fin);
-				buffer[strlen(buffer) - 1] = 0;
-
-				if ((title != NULL) && (playllistid != NULL) && (channelid != NULL)) {
-					gui_menu_entry_t *entry;
-
-					entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, title, GUI_STATE_MENU_PLAYLIST, GUI_STATE_GET_PLAYLIST);
-					if (entry != NULL) {
-						entry->tokennr = tokennr;
-						entry->playlistid = playllistid;
+				if (addit && !error) {
+					entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, title, state, initstate);
+				}
+				if (entry != NULL) {
+					entry->tokennr = tokennr;
+					entry->playlistid = playllistid;
+					playllistid = NULL;
+					entry->channelid = channelid;
+					channelid = NULL;
+					entry->searchterm = searchterm;
+				} else {
+					if (playllistid != NULL) {
+						free(playllistid);
 						playllistid = NULL;
-						entry->channelid = channelid;
+					}
+					if (channelid != NULL) {
+						free(channelid);
 						channelid = NULL;
+					}
+					if (searchterm != NULL) {
+						free(searchterm);
+						searchterm = NULL;
 					}
 				}
 
@@ -1071,28 +1241,8 @@ static void load_menu_state(gui_t *gui)
 					free(title);
 					title = NULL;
 				}
-				if (playllistid != NULL) {
-					free(playllistid);
-					playllistid = NULL;
-				}
-				if (channelid != NULL) {
-					free(channelid);
-					channelid = NULL;
-				}
 			}
 
-			if (title != NULL) {
-				free(title);
-				title = NULL;
-			}
-			if (playllistid != NULL) {
-				free(playllistid);
-				playllistid = NULL;
-			}
-			if (channelid != NULL) {
-				free(channelid);
-				channelid = NULL;
-			}
 			free(buffer);
 			buffer = NULL;
 		}
@@ -1103,7 +1253,7 @@ static void load_menu_state(gui_t *gui)
 
 
 /** Initialize graphic. */
-gui_t *gui_alloc(const char *sharedir, int fullscreen)
+gui_t *gui_alloc(const char *sharedir, int fullscreen, const char *searchterm)
 {
 	gui_t *gui;
 	const SDL_VideoInfo *info;
@@ -1112,6 +1262,7 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen)
 	Uint32 flags;
 	char *filename = NULL;
 	int ret;
+	gui_menu_entry_t *entry;
 
 	flags = 0;
 	if (fullscreen) {
@@ -1236,8 +1387,23 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen)
 
 	gui->description_status = 0;
 
-	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_NEW_ACCESS_TOKEN, GUI_STATE_GET_MY_CHANNELS);
-	gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF, GUI_STATE_GET_MY_CHANNELS);
+	entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Login", GUI_STATE_NEW_ACCESS_TOKEN, GUI_STATE_GET_MY_CHANNELS);
+	if (entry == NULL) {
+		LOG_ERROR("Out of memory\n");
+	}
+	entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF, GUI_STATE_GET_MY_CHANNELS);
+	if (entry == NULL) {
+		LOG_ERROR("Out of memory\n");
+	}
+	entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Search", GUI_STATE_SEARCH_ENTER, GUI_STATE_SEARCH_PLAYLIST);
+	if (entry == NULL) {
+		LOG_ERROR("Out of memory\n");
+	} else {
+		if (searchterm != NULL) {
+			entry->searchterm = strdup(searchterm);
+		}
+	}
+
 	found = 0;
 	for (i = 0; i < MAX_ACCOUNTS; i++) {
 		char *accountname;
@@ -2151,6 +2317,11 @@ static char *gui_get_prevPageToken(gui_cat_t *cat)
 				prevPageToken = NULL;
 				break;
 
+			case GUI_STATE_SEARCH:
+				/* Not supported. */
+				prevPageToken = NULL;
+				break;
+
 			default:
 				LOG_ERROR(__FILE__ ":%d: %s not supported in category %s.\n", __LINE__,
 					get_state_text(cat->prevPageState), cat->title);
@@ -2193,6 +2364,11 @@ static char *gui_get_nextPageToken(gui_cat_t *cat)
 				break;
 
 			case GUI_STATE_MENU_PLAYLIST:
+				/* Not supported. */
+				nextPageToken = NULL;
+				break;
+
+			case GUI_STATE_SEARCH:
 				/* Not supported. */
 				nextPageToken = NULL;
 				break;
@@ -3156,6 +3332,120 @@ static int update_channel_playlists(gui_t *gui, gui_cat_t *selected_cat, int rev
 	return rv;
 }
 
+static int update_search_playlists(gui_t *gui, gui_cat_t *cat, int reverse)
+{
+	int rv;
+	int subnr;
+	const char *pageToken;
+	gui_elem_t *last;
+
+	if (cat->elem != NULL) {
+		/* Get the number of the last element in the list. */
+		if (reverse) {
+			gui_elem_t *first;
+
+			first = cat->elem;
+			last = NULL;
+
+			pageToken = first->prevPageToken;
+			subnr = first->subnr;
+		} else {
+			last = cat->elem->prev;
+			pageToken = last->nextPageToken;
+			subnr = last->subnr;
+			subnr++;
+		}
+		if (pageToken == NULL) {
+			LOG_ERROR("%s: Bad pageToken in cat %s.\n", __FUNCTION__, cat->title);
+			return JT_ERROR;
+		}
+	} else {
+		last = NULL;
+
+		/* This is a new list start with number 0. */
+		if (cat->videopagetoken != NULL) {
+			pageToken = cat->videopagetoken;
+			subnr = cat->vidnr;
+		} else {
+			subnr = 0;
+			pageToken = "";
+		}
+	}
+
+	rv = jt_search_video(gui->at, cat->searchterm, pageToken);
+	pageToken = NULL;
+
+	if (rv == JT_OK) {
+		int totalResults = 0;
+		int resultsPerPage = 0;
+		int i;
+
+		rv = jt_json_get_int_by_path(gui->at, &totalResults, "/pageInfo/totalResults");
+		if (rv != JT_OK) {
+			totalResults = 0;
+		}
+
+		rv = jt_json_get_int_by_path(gui->at, &resultsPerPage, "/pageInfo/resultsPerPage");
+		if (rv != JT_OK) {
+			resultsPerPage = 0;
+		}
+		if (reverse) {
+			subnr -= resultsPerPage;
+		}
+		for (i = 0; (i < resultsPerPage) && (subnr < totalResults); i++) {
+			const char *url;
+			gui_elem_t *elem;
+			int val;
+
+			val = subnr;
+			rv = jt_json_get_int_by_path(gui->at, &val, "/items[%d]/snippet/position", i);
+			if (rv == JT_OK) {
+				subnr = val;
+			} else {
+				rv = JT_OK;
+			}
+			
+			url = jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/thumbnails/default/url", i);
+
+			elem = gui_elem_alloc(gui, cat, last, url);
+			if (elem != NULL) {
+				last = elem;
+				if (i == 0) {
+					elem->prevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
+					if (!reverse) {
+						cat->current = elem;
+					}
+				}
+			 	elem->title = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/title", i));
+				elem->urlmedium = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/snippet/thumbnails/medium/url", i));
+				elem->videoid = jt_strdup(jt_json_get_string_by_path(gui->at, "/items[%d]/id/videoId", i));
+				elem->subnr = subnr;
+			}
+			subnr++;
+		}
+
+		if (last != NULL) {
+			if (last->nextPageToken != NULL) {
+				free(last->nextPageToken);
+				last->nextPageToken = NULL;
+			}
+			last->nextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
+			if (reverse) {
+				cat->current = last;
+			}
+		}
+		jt_free_transfer(gui->at);
+	} else {
+		if (rv == JT_PROTOCOL_ERROR) {
+			const char *error;
+
+			error = jt_get_protocol_error(gui->at);
+			LOG_ERROR("Search %s protocol error '%s' in cat %s.\n", cat->playlistid, error, cat->title);
+		}
+	}
+	return rv;
+}
+
 /** Find page token for cat. */
 static const char *find_cat_page_token(gui_t *gui, gui_cat_t *cat)
 {
@@ -3250,6 +3540,11 @@ static int playVideo(gui_t *gui, const char *videofile, gui_cat_t *cat, gui_elem
 				fprintf(fout, "CHANNELID=\"%s\"\n", cat->channelid);
 			} else {
 				fprintf(fout, "CHANNELID=\"\"\n");
+			}
+			if (cat->searchterm != NULL) {
+				fprintf(fout, "SEARCHTERM=\"%s\"\n", cat->searchterm);
+			} else {
+				fprintf(fout, "SEARCHTERM=\"\"\n");
 			}
 			catPageToken = find_cat_page_token(gui, cat);
 			if (catPageToken == NULL) {
@@ -3459,6 +3754,10 @@ static void set_description_select(gui_t *gui)
 				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Show playlist");
 				break;
 
+			case GUI_STATE_SEARCH:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Search");
+				break;
+
 			default:
 				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Select");
 				break;
@@ -3470,6 +3769,10 @@ static void set_description_select(gui_t *gui)
 
 			case GUI_STATE_MENU_PLAYLIST:
 				gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Remove playlist");
+				break;
+
+			case GUI_STATE_SEARCH:
+				gui->triangle_text = gui_printf(gui->descfont, gui->triangle_text, "Remove search");
 				break;
 
 			default:
@@ -3523,33 +3826,93 @@ static void save_menu_state(gui_t *gui)
 	if (fout != NULL) {
 		gui_menu_entry_t *entry;
 
+		if (fprintf(fout, "MenuFormat\n") < 0) {
+			error = 1;
+		}
+		if (fprintf(fout, "%d\n", MENU_VERSION) < 0) {
+			error = 1;
+		}
+
 		entry = gui->mainmenu;
-		while(entry != NULL) {
-			if (entry->state == GUI_STATE_MENU_PLAYLIST) {
-				if (fprintf(fout, "%d\n", entry->tokennr) < 0) {
-					error = 1;
+		while(!error && (entry != NULL)) {
+			switch (entry->state) {
+				case GUI_STATE_SEARCH:
+					if (entry->searchterm == NULL) {
+						break;
+					}
+					if (entry->searchterm[0] == 0) {
+						break;
+					}
+					if (fprintf(fout, "%d\n", entry->state) < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%d\n", entry->initstate) < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%d\n", entry->tokennr) < 0) {
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%s\n", (entry->title != NULL) ? entry->title : "No title") < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%s\n", (entry->searchterm != NULL) ? entry->searchterm : "") < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "\n") < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
 					break;
-				}
-				if (fprintf(fout, "%s\n", (entry->title != NULL) ? entry->title : "No title") < 0) {
-					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
-					error = 1;
+
+				case GUI_STATE_MENU_PLAYLIST:
+					if (fprintf(fout, "%d\n", entry->state) < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%d\n", entry->initstate) < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%d\n", entry->tokennr) < 0) {
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%s\n", (entry->title != NULL) ? entry->title : "No title") < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%s\n", (entry->playlistid != NULL) ? entry->playlistid : "") < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "%s\n", (entry->channelid != NULL) ? entry->channelid : "") < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
+					if (fprintf(fout, "\n") < 0) {
+						LOG_ERROR("Failed to write file: %s\n", strerror(errno));
+						error = 1;
+						break;
+					}
 					break;
-				}
-				if (fprintf(fout, "%s\n", (entry->playlistid != NULL) ? entry->playlistid : "") < 0) {
-					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
-					error = 1;
+
+				default:
 					break;
-				}
-				if (fprintf(fout, "%s\n", (entry->channelid != NULL) ? entry->channelid : "") < 0) {
-					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
-					error = 1;
-					break;
-				}
-				if (fprintf(fout, "\n") < 0) {
-					LOG_ERROR("Failed to write file: %s\n", strerror(errno));
-					error = 1;
-					break;
-				}
 			}
 			entry = entry->next;
 			if (entry == gui->mainmenu) {
@@ -3570,7 +3933,7 @@ static void save_menu_state(gui_t *gui)
 /**
  * Main loop for GUI.
  */
-int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, const char *channelid, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr, int menunr, int timer)
+int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, const char *channelid, const char *searchterm, const char *playlistid, const char *catpagetoken, const char *videoid, int catnr, int channelnr, const char *videopagetoken, int vidnr, int menunr, int timer)
 {
 	int done;
 	SDL_Event event;
@@ -3587,6 +3950,16 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 	const char *lastcatpagetoken;
 	int timeoutcounter = 0;
 	char *oldstatusmsg = NULL;
+	char searchstring[80];
+	int searchpos;
+
+	searchstring[0] = 0;
+	searchpos = 0;
+	if (searchterm != NULL) {
+		strncpy(searchstring, searchterm, sizeof(searchstring));
+		searchstring[sizeof(searchstring) - 1] = 0;
+		searchpos = strlen(searchstring);
+	}
 
 	getstate = origgetstate;
 	LOG("videopagetoken %s at startup\n", videopagetoken);
@@ -3725,6 +4098,13 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 										entry->channelid = jt_strdup(cat->channelid);
 										entry->tokennr = gui->selectedmenu->tokennr;
 									}
+									if (cat->searchterm != NULL) {
+										gui_menu_entry_t *entry;
+
+										entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, cat->title, GUI_STATE_SEARCH, GUI_STATE_SEARCH_PLAYLIST);
+										entry->searchterm = jt_strdup(cat->searchterm);
+										entry->tokennr = gui->selectedmenu->tokennr;
+									}
 								}
 							}
 							break;
@@ -3743,6 +4123,15 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 								}
 								break;
 							}
+							if (state == GUI_STATE_SEARCH_ENTER) {
+								state = GUI_STATE_SEARCH;
+								if (gui->selectedmenu->searchterm != NULL) {
+									free(gui->selectedmenu->searchterm);
+								}
+								gui->selectedmenu->searchterm = jt_strdup(searchstring);
+								break;
+							}
+
 						case BTN_TRIANGLE:
 							if (curstate == GUI_STATE_MAIN_MENU) {
 								gui_menu_entry_t *entry;
@@ -3757,6 +4146,10 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 										entry = NULL;
 									} else if (entry->state == GUI_STATE_MENU_PLAYLIST) {
 										/* Remove playlist. */
+										gui_menu_entry_free(gui, entry);
+										entry = NULL;
+									} else if (entry->state == GUI_STATE_SEARCH) {
+										/* Remove search. */
 										gui_menu_entry_free(gui, entry);
 										entry = NULL;
 									}
@@ -3908,6 +4301,9 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 						}
 
 						case SDLK_q:
+							if (state == GUI_STATE_SEARCH_ENTER) {
+								break;
+							}
 							set_no_description(gui);
 							/* Quit */
 							done = 1;
@@ -3927,7 +4323,11 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 										if ((first->prevPageToken != NULL) && (curstate == GUI_STATE_RUNNING)) {
 											afterplayliststate = curstate;
-											state = GUI_STATE_GET_PREV_PLAYLIST;
+											if (cat->nextPageState == GUI_STATE_SEARCH) {
+												state = GUI_STATE_SEARCH_PREV_PLAYLIST;
+											} else {
+												state = GUI_STATE_GET_PREV_PLAYLIST;
+											}
 											gui->cur_cat = cat;
 										}
 									} else {
@@ -3952,7 +4352,11 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 										if ((last->nextPageToken != NULL) && (curstate == GUI_STATE_RUNNING)) {
 											afterplayliststate = curstate;
-											state = GUI_STATE_GET_PLAYLIST;
+											if (cat->nextPageState == GUI_STATE_SEARCH) {
+												state = GUI_STATE_SEARCH_PLAYLIST;
+											} else {
+												state = GUI_STATE_GET_PLAYLIST;
+											}
 											gui->cur_cat = cat;
 										}
 									} else {
@@ -4133,16 +4537,168 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							break;
 
 						case SDLK_f:
+							if (state == GUI_STATE_SEARCH_ENTER) {
+								break;
+							}
 						case SDLK_F1:
 							gui->fullscreenmode ^= 1;
 							SDL_WM_ToggleFullScreen(gui->screen);
 							break;
 						case SDLK_d:
+							if (state == GUI_STATE_SEARCH_ENTER) {
+								break;
+							}
 							print_debug_cat(gui, gui->current);
 							break;
 	
 						default:
 							break;
+					}
+					if (state == GUI_STATE_SEARCH_ENTER) {
+						int k = 0;
+						switch(key) {
+							case SDLK_a:
+								k = 'a';
+								break;
+							case SDLK_b:
+								k = 'b';
+								break;
+							case SDLK_c:
+								k = 'c';
+								break;
+							case SDLK_d:
+								k = 'd';
+								break;
+							case SDLK_e:
+								k = 'e';
+								break;
+							case SDLK_f:
+								k = 'f';
+								break;
+							case SDLK_g:
+								k = 'g';
+								break;
+							case SDLK_h:
+								k = 'h';
+								break;
+							case SDLK_i:
+								k = 'i';
+								break;
+							case SDLK_j:
+								k = 'j';
+								break;
+							case SDLK_k:
+								k = 'k';
+								break;
+							case SDLK_l:
+								k = 'l';
+								break;
+							case SDLK_m:
+								k = 'm';
+								break;
+							case SDLK_n:
+								k = 'n';
+								break;
+							case SDLK_o:
+								k = 'o';
+								break;
+							case SDLK_p:
+								k = 'p';
+								break;
+							case SDLK_q:
+								k = 'q';
+								break;
+							case SDLK_r:
+								k = 'r';
+								break;
+							case SDLK_s:
+								k = 's';
+								break;
+							case SDLK_t:
+								k = 't';
+								break;
+							case SDLK_u:
+								k = 'u';
+								break;
+							case SDLK_v:
+								k = 'v';
+								break;
+							case SDLK_w:
+								k = 'w';
+								break;
+							case SDLK_x:
+								k = 'x';
+								break;
+							case SDLK_y:
+								k = 'y';
+								break;
+							case SDLK_z:
+								k = 'z';
+								break;
+							case SDLK_PLUS:
+								k = '+';
+								break;
+							case SDLK_MINUS:
+								k = '-';
+								break;
+							case SDLK_COLON:
+								k = '|';
+								break;
+							case SDLK_0:
+								k = '0';
+								break;
+							case SDLK_1:
+								k = '1';
+								break;
+							case SDLK_2:
+								k = '2';
+								break;
+							case SDLK_3:
+								k = '3';
+								break;
+							case SDLK_4:
+								k = '4';
+								break;
+							case SDLK_5:
+								k = '5';
+								break;
+							case SDLK_6:
+								k = '6';
+								break;
+							case SDLK_7:
+								k = '7';
+								break;
+							case SDLK_8:
+								k = '8';
+								break;
+							case SDLK_9:
+								k = '9';
+								break;
+							case SDLK_BACKSPACE:
+								if (searchpos > 0) {
+									searchpos--;
+									searchstring[searchpos] = 0;
+								}
+								break;
+							case SDLK_RETURN:
+								state = GUI_STATE_SEARCH;
+								if (gui->selectedmenu->searchterm != NULL) {
+									free(gui->selectedmenu->searchterm);
+								}
+								gui->selectedmenu->searchterm = jt_strdup(searchstring);
+								break;
+
+							default:
+								break;
+						}
+						if (searchpos < (sizeof(searchstring) - 1)) {
+							if (k != 0) {
+								searchstring[searchpos] = k;
+								searchpos++;
+								searchstring[searchpos] = 0;
+							}
+						}
+						break;
 					}
 					break;
 
@@ -4179,16 +4735,23 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 			case GUI_STATE_STARTUP:
 				state = GUI_STATE_MAIN_MENU;
-				if (gui->selectedmenu != NULL) {
+				if (gui->mainmenu != NULL) {
 					if (menunr != 0) {
+						gui_menu_entry_t *entry;
+
+						entry = gui->mainmenu;
 						do {
-							if (gui->selectedmenu->nr == menunr) {
+							if (entry->nr == menunr) {
 								break;
 							}
-							gui->selectedmenu = gui->selectedmenu->next;
-						} while (gui->selectedmenu != gui->mainmenu);
-						if (gui->selectedmenu->nr == menunr) {
+							entry = entry->next;
+						} while (entry != gui->mainmenu);
+						if (entry->nr == menunr) {
+							gui->selectedmenu = entry;
 							state = gui->selectedmenu->state;
+							if (state == GUI_STATE_SEARCH_ENTER) {
+								state = GUI_STATE_SEARCH;
+							}
 						}
 						menunr = 0;
 					}
@@ -4711,7 +5274,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 					if (gui->cur_cat != NULL) {
 						LOG("Update channel %s for channelid %s playlistid %s\n", gui->cur_cat->title, gui->cur_cat->channelid, gui->cur_cat->playlistid);
 					} else {
-						LOG("Update channel %s\n", channelid);
+						LOG("Update channelid %s\n", channelid);
 					}
 					rv = update_channel_playlists(gui, gui->cur_cat, reverse, channelid, NULL, 0, NULL, NULL, 0);
 					if (channelid != NULL) {
@@ -4735,6 +5298,40 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 				}
 				if (gui->prev_cat != NULL) {
 					if ((gui->current == NULL) || (gui->current->nextPageState != GUI_STATE_GET_CHANNEL_PLAYLIST)) {
+						/* Error while loading playlist, no item selected from the playlist, restore normal state. */
+						gui->prev_cat = NULL;
+					}
+				}
+				gui->cur_cat = NULL;
+				break;
+			}
+
+			case GUI_STATE_SEARCH_PLAYLIST:
+			case GUI_STATE_SEARCH_PREV_PLAYLIST: {
+				int reverse;
+
+				if (state == GUI_STATE_SEARCH_PLAYLIST) {
+					reverse = 0;
+				} else if (state == GUI_STATE_SEARCH_PREV_PLAYLIST) {
+					reverse = 1;
+				} else {
+					reverse = 0;
+					LOG_ERROR("Unsupported state: %d %s.\n", state, get_state_text(state));
+				}
+				if (gui->cur_cat == NULL) {
+					LOG_ERROR("No categoriy created.\n");
+				} else {
+					rv = update_search_playlists(gui, gui->cur_cat, reverse);
+					searchterm = NULL;
+				}
+				if (rv == JT_OK) {
+					state = GUI_STATE_RUNNING;
+				} else {
+					nextstate = GUI_STATE_RUNNING;
+					state = GUI_STATE_ERROR;
+				}
+				if (gui->prev_cat != NULL) {
+					if ((gui->current == NULL) || (gui->current->nextPageState != GUI_STATE_SEARCH_PLAYLIST)) {
 						/* Error while loading playlist, no item selected from the playlist, restore normal state. */
 						gui->prev_cat = NULL;
 					}
@@ -4799,7 +5396,11 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 
 							if ((last->nextPageToken != NULL) && (curstate == GUI_STATE_RUNNING)) {
 								afterplayliststate = GUI_STATE_PLAY_VIDEO;
-								state = GUI_STATE_GET_PLAYLIST;
+								if (cat->searchterm != NULL) {
+									state = GUI_STATE_SEARCH_PLAYLIST;
+								} else {
+									state = GUI_STATE_GET_PLAYLIST;
+								}
 								gui->cur_cat = cat;
 							}
 						} else {
@@ -4990,6 +5591,43 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 				if (catpagetoken != NULL) {
 					switch(getstate) {
 					case GUI_STATE_GET_CHANNEL_PLAYLIST:
+						/* Load selected category (was selected before restart). */
+						afterplayliststate = getstate;
+						/* Use current to return from playlist. */
+						gui->prev_cat = gui->current;
+						break;
+					default:
+						afterplayliststate = GUI_STATE_RUNNING;
+						break;
+					}
+				}
+				gui->cur_cat = cat;
+				state = GUI_STATE_LOAD_ACCESS_TOKEN;
+				break;
+			}
+
+			case GUI_STATE_SEARCH_ENTER: {
+				gui->statusmsg = buf_printf(gui->statusmsg, "Please enter search string:\n%s", searchstring);
+				break;
+			}
+
+			case GUI_STATE_SEARCH: {
+				/* Show playlist which was selected from menu. */
+				gui_cat_t *cat;
+
+				cat = gui_cat_alloc(gui, &gui->categories, NULL);
+				cat->nextPageState = GUI_STATE_SEARCH;
+				cat->prevPageState = GUI_STATE_SEARCH;
+				cat->searchterm = jt_strdup(gui->selectedmenu->searchterm);
+		 		cat->title = jt_strdup(gui->selectedmenu->searchterm);
+				if (((enum gui_state) getstate) == state) {
+					cat->videopagetoken = videopagetoken;
+					videopagetoken = NULL;
+					afterplayliststate = GUI_STATE_RUNNING;
+				}
+				if (catpagetoken != NULL) {
+					switch(getstate) {
+					case GUI_STATE_SEARCH_PLAYLIST:
 						/* Load selected category (was selected before restart). */
 						afterplayliststate = getstate;
 						/* Use current to return from playlist. */
