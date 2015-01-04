@@ -5087,6 +5087,7 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 									}
 									LOG("reset playlistid %s because playlist was found.\n", playlistid);
 									playlistid = NULL;
+									searchterm = NULL;
 									videoid = NULL;
 								}
 							}
@@ -5322,13 +5323,54 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 					LOG_ERROR("No categoriy created.\n");
 				} else {
 					rv = update_search_playlists(gui, gui->cur_cat, reverse);
-					searchterm = NULL;
 				}
 				if (rv == JT_OK) {
+					gui_cat_t *cat = gui->cur_cat;
+					if (!foundvid && (videoid != NULL) && (cat != NULL) &&
+						(searchterm != NULL) && (cat->searchterm != NULL) &&
+						(strcmp(searchterm, cat->searchterm) == 0)) {
+						LOG("Found cat for searchterm %s\n", searchterm);
+						if (cat->nextPageState == ((enum gui_state) getstate)) {
+							/* Try to find video selected by parameter videoid. */
+							gui_elem_t *elem;
+
+							LOG("Search for videoid %s in %s\n", videoid, cat->title);
+
+							elem = cat->elem;
+							while(elem != NULL) {
+								LOG("in video id %s\n", elem->videoid);
+								if ((elem->videoid != NULL) && (strcmp(elem->videoid, videoid) == 0)) {
+									/* Found video, so select it. */
+									cat->current = elem;
+									/* Next video can be selected if user selected to play playlist. */
+									LOG("Found for videoid %s in %s\n", videoid, cat->title);
+									foundvid = 1;
+									break;
+								}
+								elem = elem->next;
+								if (elem == cat->elem) {
+									break;
+								}
+							}
+							LOG("reset searchterm %s because category was found.\n", searchterm);
+							searchterm = NULL;
+							playlistid = NULL;
+							videoid = NULL;
+						}
+						/* Go to next state if there is nothing to load in this state. */
+						state = afterplayliststate;
+						if (gui->statusmsg != NULL) {
+							free(gui->statusmsg);
+							gui->statusmsg = NULL;
+						}
+					}
 					state = GUI_STATE_RUNNING;
 				} else {
 					nextstate = GUI_STATE_RUNNING;
 					state = GUI_STATE_ERROR;
+					searchterm = NULL;
+					playlistid = NULL;
+					videoid = NULL;
 				}
 				if (gui->prev_cat != NULL) {
 					if ((gui->current == NULL) || (gui->current->nextPageState != GUI_STATE_SEARCH_PLAYLIST)) {
