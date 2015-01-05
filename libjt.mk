@@ -27,15 +27,36 @@ CPPFLAGS += -std=gnu99 -Iinclude
 CPPFLAGS += -I$(LIBJTBASEDIR)/libjt/include
 LDFLAGS += -L$(LIBJTDIR)
 LDLIBS += $(LIBJT)
-LDLIBS += $(shell pkg-config --libs json openssl libcurl)
-CPPFLAGS += $(shell pkg-config --cflags json openssl libcurl)
 
-ifneq ($(shell pkg-config --exists json; echo -n $$?),0)
-$(error json not found)
+PKGCONFIG ?= pkg-config
+PKGS =
+
+ifeq ($(shell $(PKGCONFIG) --exists json-c; echo -n $$?),0)
+JSON = json-c
+else
+JSON = json
 endif
-ifneq ($(shell pkg-config --exists libcurl; echo -n $$?),0)
+
+ifneq ($(shell $(PKGCONFIG) --exists $(JSON); echo -n $$?),0)
+$(error $(JSON) not found)
+else
+PKGS += $(JSON)
+endif
+
+ifneq ($(shell $(PKGCONFIG) --exists libcurl; echo -n $$?),0)
 $(error libcurl not found)
+else
+PKGS += libcurl
 endif
+ifneq ($(shell $(PKGCONFIG) --exists openssl; echo -n $$?),0)
+#$(error openssl not found)
+LDLIBS += -lssl
+else
+PKGS += openssl
+endif
+
+LDLIBS += $(shell $(PKGCONFIG) --libs $(PKGS))
+CPPFLAGS += $(shell $(PKGCONFIG) --cflags $(PKGS))
 
 CHROOTDIR =
 PREFIX = /usr/local

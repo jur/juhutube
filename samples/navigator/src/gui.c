@@ -20,7 +20,7 @@
 #define SECRET_FILE ".client_secret.json"
 #define TITLE_FILE ".accounttitle"
 #define MENU_STATE_FILE ".menustate"
-#if 1
+#ifndef __arm__
 
 /* Buttons for PS2 and normal Linux. */
 #define BTN_SQUARE SDLK_s
@@ -157,6 +157,7 @@ enum gui_state {
 	GUI_STATE_SEARCH_PLAYLIST,
 	GUI_STATE_SEARCH_PREV_PLAYLIST,
 	GUI_STATE_SEARCH_ENTER,
+	GUI_STATE_QUIT,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -196,6 +197,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_SEARCH_PLAYLIST)
 		CASESTATE(GUI_STATE_SEARCH_PREV_PLAYLIST)
 		CASESTATE(GUI_STATE_SEARCH_ENTER)
+		CASESTATE(GUI_STATE_QUIT)
 	}
 	return "unknown";
 }
@@ -1392,6 +1394,10 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen, const char *searchterm)
 		LOG_ERROR("Out of memory\n");
 	}
 	entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Power Off", GUI_STATE_POWER_OFF, GUI_STATE_GET_MY_CHANNELS);
+	if (entry == NULL) {
+		LOG_ERROR("Out of memory\n");
+	}
+	entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Quit", GUI_STATE_QUIT, GUI_STATE_GET_MY_CHANNELS);
 	if (entry == NULL) {
 		LOG_ERROR("Out of memory\n");
 	}
@@ -3750,6 +3756,10 @@ static void set_description_select(gui_t *gui)
 				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Power Off");
 				break;
 
+			case GUI_STATE_QUIT:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Quit");
+				break;
+
 			case GUI_STATE_MENU_PLAYLIST:
 				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Show playlist");
 				break;
@@ -5613,6 +5623,11 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 			case GUI_STATE_TIMEOUT:
 				done = 1;
 				retval = 4;
+				break;
+
+			case GUI_STATE_QUIT:
+				done = 1;
+				retval = 0;
 				break;
 
 			case GUI_STATE_MENU_PLAYLIST: {

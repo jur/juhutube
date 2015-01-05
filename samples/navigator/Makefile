@@ -2,7 +2,7 @@ LIBJTBASEDIR = ../..
 include $(LIBJTBASEDIR)/libjt.mk
 
 MACHINE = $(shell $(CC) -dumpmachine)
-HOSTMACHINE = $(shell uname -m)
+HOSTMACHINE = $(shell uname -m | sed -e 's-armv7l-arm-g')
 BUILDHOSTMACHINE = $(shell echo "$(MACHINE)" | grep -e "$(HOSTMACHINE)")
 OBJDIR = obj-$(MACHINE)
 DEPDIR = dep-$(MACHINE)
