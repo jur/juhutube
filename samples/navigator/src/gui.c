@@ -2152,16 +2152,27 @@ static void gui_paint_main_view(gui_t *gui)
 static void gui_paint_status(gui_t *gui)
 {
 	const char *text;
-	char t[2];
+	char t[5];
 	SDL_Rect rcDest = {BORDER_X, BORDER_Y, 0, 0};
 	int maxHeight = 0;
 
 	text = gui->statusmsg;
-	t[0] = 0;
-	t[1] = 0;
 
 	while(*text != 0) {
-		t[0] = *text;
+		int i;
+
+		t[0] = 0;
+		t[1] = 0;
+		t[2] = 0;
+		t[3] = 0;
+		t[4] = 0;
+		for (i = 0; i < 4; i++) {
+			t[i] = *text;
+			if ((t[i] & 0x80) == 0x00) {
+				break;
+			}
+			text++;
+		}
 		if (*text == '\n') {
 			rcDest.x = BORDER_X;
 			rcDest.y += maxHeight + BORDER_Y;
@@ -4012,6 +4023,10 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 	afterplayliststate = GUI_STATE_RUNNING;
 	aftersearchplayliststate = GUI_STATE_RUNNING;
 	prevstate = state;
+	if (getstate == 0) {
+		gui->statusmsg = buf_printf(gui->statusmsg, "Juhutube\n© Jürgen Urban");
+		wakeupcount = DEFAULT_SLEEP / 2;
+	}
 	while(!done) {
 		enum gui_state curstate;
 
@@ -4802,6 +4817,10 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 				break;
 
 			case GUI_STATE_MAIN_MENU:
+				if (gui->statusmsg != NULL) {
+					free(gui->statusmsg);
+					gui->statusmsg = NULL;
+				}
 				set_description_select(gui);
 				if (gui->at != NULL) {
 					jt_free(gui->at);
