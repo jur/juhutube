@@ -107,6 +107,8 @@ typedef struct jt_access_token_s jt_access_token_t;
  *        current youtube user.
  * @param refresh_token_file Path to file where a refreshed token file should
  *        be stored for the current youtube user.
+ * @param key Google youtube API key for public
+ *        access (without authorisation).
  * @param flags 0 (with security), JT_FLAG_NO_CERT or JT_FLAG_NO_HOST_CHECK.
  *
  * The string parameters are internally copied and the memory will be freed when
@@ -116,9 +118,8 @@ typedef struct jt_access_token_s jt_access_token_t;
  * https://developers.google.com/youtube/registering_an_application
  */
 jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
-	const char *client_secret,
-	const char *token_file,
-	const char *refresh_token_file,
+	const char *client_secret, const char *token_file,
+	const char *refresh_token_file, const char *key,
 	unsigned int flags);
 
 /**
@@ -132,6 +133,8 @@ jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
  *        current youtube user.
  * @param refresh_token_file Path to file where a refreshed token file should
  *        be stored for the current youtube user.
+ * @param key_file Path to file containing google youtube API key for public
+ *        access (without authorisation).
  * @param flags 0 (with security), JT_FLAG_NO_CERT or JT_FLAG_NO_HOST_CHECK.
  *
  * The string parameters are internally copied and the memory will be freed when
@@ -144,6 +147,7 @@ jt_access_token_t *jt_alloc_by_file(FILE *logfd, FILE *errfd,
 	const char *secret_file,
 	const char *token_file,
 	const char *refresh_token_file,
+	const char *key_file,
 	unsigned int flags);
 
 /**

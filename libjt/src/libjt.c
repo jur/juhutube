@@ -84,6 +84,7 @@ struct jt_access_token_s {
 	/* App keys. */
 	char *client_id;
 	char *client_secret;
+	char *key;
 
 	/* User authorisation. */
 	char *device_code;
@@ -98,6 +99,9 @@ struct jt_access_token_s {
 	/* Token storage */
 	char *token_file;
 	char *refresh_token_file;
+
+	/* Key storage */
+	char *key_file;
 
 	/* HTTP Transfer */
 	jt_transfer_t transfer;
@@ -144,7 +148,9 @@ static size_t jt_mem_callback(void *contents, size_t size, size_t nmemb,
 
 static jt_access_token_t *jt_alloc_internal(FILE *logfd, FILE *errfd,
 	const char *token_file,
-	const char *refresh_token_file, unsigned int flags)
+	const char *refresh_token_file,
+	const char *key_file,
+	unsigned int flags)
 {
 	jt_access_token_t *at;
 
@@ -161,6 +167,7 @@ static jt_access_token_t *jt_alloc_internal(FILE *logfd, FILE *errfd,
 
 	at->token_file = jt_strdup(token_file);
 	at->refresh_token_file = jt_strdup(refresh_token_file);
+	at->key_file = jt_strdup(key_file);
 
 	at->transfer.curl = curl_easy_init();
 
@@ -203,12 +210,13 @@ jt_access_token_t *jt_alloc_by_file(FILE *logfd, FILE *errfd,
 	const char *secret_file,
 	const char *token_file,
 	const char *refresh_token_file,
+	const char *key_file,
 	unsigned int flags)
 {
 	jt_access_token_t *at;
 	void *sec;
 
-	at = jt_alloc_internal(logfd, errfd, token_file, refresh_token_file, flags);
+	at = jt_alloc_internal(logfd, errfd, token_file, refresh_token_file, key_file, flags);
 	if (at == NULL) {
 		return NULL;
 	}
@@ -233,22 +241,34 @@ jt_access_token_t *jt_alloc_by_file(FILE *logfd, FILE *errfd,
 		free(sec);
 		sec = NULL;
 	}
+	if (key_file != NULL) {
+		at->key = jt_load_file(at, key_file);
+		if (at->key == NULL) {
+			LOG_ERROR("Out of memory\n");
+		} else if (at->key == ((void *) -1)) {
+			LOG_ERROR("Failed to load %s. Please download file from Google Developer Console, see https://developers.google.com/youtube/v3/\n", secret_file);
+		} else {
+			/* Found a key. */
+		}
+	}
 
 	return at;
 }
 
 jt_access_token_t *jt_alloc(FILE *logfd, FILE *errfd, const char *client_id,
 	const char *client_secret, const char *token_file,
-	const char *refresh_token_file, unsigned int flags)
+	const char *refresh_token_file, const char *key,
+	unsigned int flags)
 {
 	jt_access_token_t *at;
 
-	at = jt_alloc_internal(logfd, errfd, token_file, refresh_token_file, flags);
+	at = jt_alloc_internal(logfd, errfd, token_file, refresh_token_file, NULL, flags);
 	if (at == NULL) {
 		return NULL;
 	}
 	at->client_id = jt_strdup(client_id);
 	at->client_secret = jt_strdup(client_secret);
+	at->key = jt_strdup(key);
 	return at;
 }
 
@@ -270,6 +290,10 @@ void jt_free(jt_access_token_t *at)
 	if (at->refresh_token_file != NULL) {
 		free(at->refresh_token_file);
 		at->refresh_token_file = NULL;
+	}
+	if (at->key_file != NULL) {
+		free(at->key_file);
+		at->key_file = NULL;
 	}
 	if (at->device_code != NULL) {
 		free(at->device_code);
@@ -294,6 +318,10 @@ void jt_free(jt_access_token_t *at)
 	if (at->refresh_token != NULL) {
 		free(at->refresh_token);
 		at->refresh_token = NULL;
+	}
+	if (at->key != NULL) {
+		free(at->key);
+		at->key = NULL;
 	}
 	if (at->protocol_error != NULL) {
 		free(at->protocol_error);
@@ -1319,14 +1347,8 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 	char *url = NULL;
 	va_list ap;
 
-	if (at->access_token == NULL) {
-		return JT_ERROR_ACCESS_TOKEN;
-	}
-	if (at->token_type == NULL) {
-		return JT_ERROR_ACCESS_TOKEN;
-	}
 	if (at->transfer.jobj != NULL) {
-		LOG_ERROR("jt_load_json called with jobj.\n");
+		LOG_ERROR("jt_load_json_refreshing called with jobj.\n");
 #ifdef JT_JSON_DEBUG
 		json_object_to_file("debug.json", at->transfer.jobj);
 #endif
@@ -1340,7 +1362,6 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 		url = NULL;
 		return JT_NO_MEM;
 	}
-	LOG("%s() URL: %s\n", __FUNCTION__, CHECKSTR(url));
 
 	retry = 0;
 	do {
@@ -1352,15 +1373,29 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 			at->transfer.jobj = NULL;
 		}
 
-		ret = asprintf(&token, "Authorization: %s %s", CHECKSTR(at->token_type), CHECKSTR(at->access_token));
-		if (ret == -1) {
-			token = NULL;
-			free(url);
-			url = NULL;
-			return JT_NO_MEM;
-		}
-		headers = curl_slist_append(headers, token);
+		if ((at->access_token != NULL) && (at->token_type != NULL)) {
+			ret = asprintf(&token, "Authorization: %s %s", CHECKSTR(at->token_type), CHECKSTR(at->access_token));
+			if (ret == -1) {
+				token = NULL;
+				free(url);
+				url = NULL;
+				return JT_NO_MEM;
+			}
+			headers = curl_slist_append(headers, token);
+		} else if (at->key != NULL) {
+			char *old;
 
+			old = url;
+			ret = asprintf(&url, "%s&key=%s", url, at->key);
+			if (ret == -1) {
+				url = NULL;
+				free(old);
+				old = NULL;
+				return JT_NO_MEM;
+			}
+		}
+
+		LOG("%s() URL: %s\n", __FUNCTION__, CHECKSTR(url));
 		rv = jt_load_json(at, url, headers, formpost, savefilename);
 
 		curl_slist_free_all(headers);
@@ -1385,6 +1420,12 @@ static int jt_load_json_refreshing(jt_access_token_t *at,
 					if (rv == JT_OK) {
 						rv = JT_AUTH_ERROR;
 					}
+				} else if (strcmp(error, "authorizationRequired") == 0) {
+					error = NULL;
+
+					LOG("Error: authorizationRequired\n");
+
+					rv = JT_ERROR_ACCESS_TOKEN;
 				} else {
 					LOG_ERROR("%s() URL: %s\n", __FUNCTION__, CHECKSTR(url));
 					LOG_ERROR("%s\n", error);

@@ -17,6 +17,7 @@
 
 #define TOKEN_FILE ".youtubetoken"
 #define REFRESH_TOKEN_FILE ".refreshtoken"
+#define KEY_FILE ".youtubekey"
 #define SECRET_FILE ".client_secret.json"
 #define TITLE_FILE ".accounttitle"
 #define MENU_STATE_FILE ".menustate"
@@ -1455,6 +1456,7 @@ static jt_access_token_t *alloc_token(int nr)
 	jt_access_token_t *at;
 	char *tokenfile = NULL;
 	char *refreshtokenfile = NULL;
+	char *keyfile = NULL;
 #ifndef CLIENT_SECRET
 	char *secretfile = NULL;
 #endif
@@ -1481,6 +1483,16 @@ static jt_access_token_t *alloc_token(int nr)
 		return NULL;
 	}
 
+	ret = asprintf(&keyfile, "%s/%s", home, KEY_FILE);
+	if (ret == -1) {
+		free(refreshtokenfile);
+		refreshtokenfile = NULL;
+		free(tokenfile);
+		tokenfile = NULL;
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
 #ifndef CLIENT_SECRET
 	ret = asprintf(&secretfile, "%s/%s", home, SECRET_FILE);
 	if (ret == -1) {
@@ -1497,14 +1509,16 @@ static jt_access_token_t *alloc_token(int nr)
 	flags |= JT_FLAG_NO_CERT;
 #endif
 #ifdef CLIENT_SECRET
-	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, flags);
+	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, CLIENT_KEY, flags);
 #else
-	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, flags);
+	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, keyfile, flags);
 #endif
 	free(tokenfile);
 	tokenfile = NULL;
 	free(refreshtokenfile);
 	refreshtokenfile = NULL;
+	free(keyfile);
+	keyfile = NULL;
 	free(secretfile);
 	secretfile = NULL;
 

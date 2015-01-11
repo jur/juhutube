@@ -25,6 +25,7 @@
 
 #define TOKEN_FILE ".youtubetoken.json"
 #define REFRESH_TOKEN_FILE ".refreshtoken.json"
+#define KEY_FILE ".youtubekey"
 #define SECRET_FILE ".client_secret.json"
 
 #define dprintf(args...) \
@@ -451,6 +452,7 @@ void get_videolist_main(void)
 	int ret;
 	char *tokenfile = NULL;
 	char *refreshtokenfile = NULL;
+	char *keyfile = NULL;
 	int rv;
 
 	home = getenv("HOME");
@@ -473,9 +475,21 @@ void get_videolist_main(void)
 		return;
 	}
 
+	ret = asprintf(&keyfile, "%s/%s", home, KEY_FILE);
+	if (ret == -1) {
+		free(refreshtokenfile);
+		refreshtokenfile = NULL;
+		free(tokenfile);
+		tokenfile = NULL;
+		LOG_ERROR("Out of memory\n");
+		return;
+	}
+
 #ifndef CLIENT_SECRET
 	ret = asprintf(&secretfile, "%s/%s", home, SECRET_FILE);
 	if (ret == -1) {
+		free(keyfile);
+		keyfile = NULL;
 		free(refreshtokenfile);
 		refreshtokenfile = NULL;
 		free(tokenfile);
@@ -486,9 +500,9 @@ void get_videolist_main(void)
 #endif
 
 #ifdef CLIENT_SECRET
-	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, 0);
+	at = jt_alloc(logfd, errfd, CLIENT_ID, CLIENT_SECRET, tokenfile, refreshtokenfile, CLIENT_KEY, 0);
 #else
-	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, 0);
+	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, keyfile, 0);
 #endif
 
 	/* Log into YouTube account. */
