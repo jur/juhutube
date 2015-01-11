@@ -22,8 +22,8 @@
 #include "gui.h"
 #include "transfer.h"
 
-/** Timeout for power off is around 5 minutes. */
-#define DEFAULT_TIMEOUT (8 * 300)
+/** Timeout for power off is several minutes. */
+#define DEFAULT_TIMEOUT (48 * 300)
 
 /**
  * Entry point for the application.
