@@ -135,7 +135,7 @@ static int login(jt_access_token_t *at)
 	return rv;
 }
 
-void search_video_main(void)
+void search_video_main(int authorize)
 {
 	jt_access_token_t *at;
 	const char *home;
@@ -198,11 +198,13 @@ void search_video_main(void)
 	at = jt_alloc_by_file(logfd, errfd, secretfile, tokenfile, refreshtokenfile, keyfile, 0);
 #endif
 
-	/* Log into YouTube account. */
-	rv = login(at);
+	if (authorize) {
+		/* Log into YouTube account. */
+		rv = login(at);
 
-	if (rv == JT_OK) {
-		printf("Login failed, trying without login.\n");
+		if (rv == JT_OK) {
+			printf("Login failed, trying without login.\n");
+		}
 	}
 	rv = search_video(at, "ps2+linux");
 
@@ -261,10 +263,11 @@ int main(int argc, char *argv[])
 {
 	int c;
 	const char *logfile = NULL;
+	int authorize = 0;
 
 	errfd = stderr;
 
-	while((c = getopt (argc, argv, "l:s")) != -1) {
+	while((c = getopt (argc, argv, "l:sa")) != -1) {
 		switch(c) {
 			case 'l':
 				/* Write log messages to a file. */
@@ -274,6 +277,10 @@ int main(int argc, char *argv[])
 			case 's':
 				/* Write log messages on console. */
 				logfd = errfd;
+				break;
+
+			case 'a':
+				authorize = 1;
 				break;
 
 			default:
@@ -295,7 +302,7 @@ int main(int argc, char *argv[])
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	search_video_main();
+	search_video_main(authorize);
 
 	curl_global_cleanup();
 	return 0;
