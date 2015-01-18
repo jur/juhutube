@@ -159,6 +159,7 @@ enum gui_state {
 	GUI_STATE_SEARCH_PREV_PLAYLIST,
 	GUI_STATE_SEARCH_ENTER,
 	GUI_STATE_QUIT,
+	GUI_STATE_UPDATE,
 };
 
 const char *get_state_text(enum gui_state state)
@@ -199,6 +200,7 @@ const char *get_state_text(enum gui_state state)
 		CASESTATE(GUI_STATE_SEARCH_PREV_PLAYLIST)
 		CASESTATE(GUI_STATE_SEARCH_ENTER)
 		CASESTATE(GUI_STATE_QUIT)
+		CASESTATE(GUI_STATE_UPDATE)
 	}
 	return "unknown";
 }
@@ -1309,7 +1311,7 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen, const char *searchterm)
 		gui->font = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", 36);
 	}
 	if (gui->font == NULL) {
-		LOG_ERROR("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
+		LOG("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
 		gui->font = TTF_OpenFont("/usr/share/fonts/truetype/DejaVuSans-Bold.ttf", 36);
 	}
 	if (gui->font == NULL) {
@@ -1329,7 +1331,7 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen, const char *searchterm)
 		gui->smallfont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", 16);
 	}
 	if (gui->smallfont == NULL) {
-		LOG_ERROR("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
+		LOG("Failed to load /usr/share/fonts/truetype/freefont/FreeSansBold.ttf.\n");
 		gui->smallfont = TTF_OpenFont("/usr/share/fonts/truetype/DejaVuSans-Bold.ttf", 16);
 	}
 	if (gui->smallfont == NULL) {
@@ -1399,6 +1401,10 @@ gui_t *gui_alloc(const char *sharedir, int fullscreen, const char *searchterm)
 		LOG_ERROR("Out of memory\n");
 	}
 	entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Quit", GUI_STATE_QUIT, GUI_STATE_GET_MY_CHANNELS);
+	if (entry == NULL) {
+		LOG_ERROR("Out of memory\n");
+	}
+	entry = gui_menu_entry_alloc(gui, &gui->mainmenu, NULL, "Update", GUI_STATE_UPDATE, GUI_STATE_GET_MY_CHANNELS);
 	if (entry == NULL) {
 		LOG_ERROR("Out of memory\n");
 	}
@@ -3808,6 +3814,10 @@ static void set_description_select(gui_t *gui)
 				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Search");
 				break;
 
+			case GUI_STATE_UPDATE:
+				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Update youtube-dl");
+				break;
+
 			default:
 				gui->cross_text = gui_printf(gui->descfont, gui->cross_text, "Select");
 				break;
@@ -5685,6 +5695,11 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 			case GUI_STATE_QUIT:
 				done = 1;
 				retval = 0;
+				break;
+
+			case GUI_STATE_UPDATE:
+				done = 1;
+				retval = 5;
 				break;
 
 			case GUI_STATE_MENU_PLAYLIST: {

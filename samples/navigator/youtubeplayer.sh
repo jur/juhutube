@@ -3,6 +3,8 @@
 DEFAULTPREFIX="$HOME"
 DEFAULTSHAREDIR="$DEFAULTPREFIX/share/ytnavigator"
 SHAREDIR="$2"
+DEFAULTVIDEOFORMAT=5
+VIDEOFORMAT=18
 if [ -z "$SHAREDIR" ]; then
 	SHAREDIR="$DEFAULTSHAREDIR"
 fi
@@ -68,6 +70,11 @@ if [ -e "/dev/ps2gs" ]; then
 	# Some video need more than one YUV overlay which is not supported by
 	# ps2gs, so disable it.
 	export SDL_VIDEO_YUV_HWACCEL="0"
+	VIDEOFORMAT=$DEFAULTVIDEOFORMAT
+fi
+
+if [ -e "$HOME/juhutube-cfg.txt" ]; then
+. "$HOME/juhutube-cfg.txt"
 fi
 
 if [ -x "$PROGRAM" ]; then
@@ -114,21 +121,36 @@ if [ -x "$PROGRAM" ]; then
 			fi
 			URLFILE="/tmp/url.$$"
 			rm -f "$URLFILE"
-			youtube-dl -g -f 5 --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE" &
-			YDLPID=$!
 			if [ -e "/proc/ps2pad" ]; then
+				youtube-dl -g -f $VIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE" &
+				YDLPID=$!
 				checkforcross $YDLPID &
 				CHECKPID=$!
+				wait $YDLPID
+
+				URL="$(cat $URLFILE)"
+				RET=0
+			else
+				youtube-dl -g -f $VIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE"
+				RET=$?
+				if [ $RET -ne 0 -a "$VIDEOFORMAT" != "$DEFAULTVIDEOFORMAT" ]; then
+					youtube-dl -g -f $DEFAULTVIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE"
+					RET=$?
+				fi
+
+				if [ $RET -eq 0 ]; then
+					URL="$(cat $URLFILE)"
+				else
+					URL=""
+				fi
 			fi
-			wait $YDLPID
-			URL="$(cat $URLFILE)"
 			rm -f "$URLFILE"
 			if [ -e "/proc/ps2pad" ]; then
 				kill $CHECKPID 2>/dev/null
 			else
 				echo
 			fi
-			if [ $? -eq 0 ]; then
+			if [ $RET -eq 0 -a "$URL" != "" ]; then
 				echo "      Starting player..."
 				echo
 				if [ $USE_WGET -ne 0 ]; then
@@ -149,8 +171,13 @@ if [ -x "$PROGRAM" ]; then
 			fi
 			rm -f "/tmp/ytcookie-${VIDEOID}.txt"
 		else
-			echo "      Stopped with $RETVAL ($CFG)"
-			break
+			if [ "$RETVAL" = "5" ]; then
+				echo "      Updating youtube-dl"
+				youtube-dl -U
+			else
+				echo "      Stopped with $RETVAL ($CFG)"
+				break
+			fi
 		fi
 	done
 fi
