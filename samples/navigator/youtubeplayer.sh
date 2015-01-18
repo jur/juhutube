@@ -75,6 +75,8 @@ fi
 
 if [ -e "$HOME/juhutube-cfg.txt" ]; then
 . "$HOME/juhutube-cfg.txt"
+else
+echo "VIDEOFORMAT=$VIDEOFORMAT" >"$HOME/juhutube-cfg.txt"
 fi
 
 if [ -x "$PROGRAM" ]; then
