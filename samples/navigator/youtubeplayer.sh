@@ -5,6 +5,7 @@ DEFAULTSHAREDIR="$DEFAULTPREFIX/share/ytnavigator"
 SHAREDIR="$2"
 DEFAULTVIDEOFORMAT=5
 VIDEOFORMAT=18
+YOUTUBEDL="youtube-dl"
 if [ -z "$SHAREDIR" ]; then
 	SHAREDIR="$DEFAULTSHAREDIR"
 fi
@@ -13,8 +14,7 @@ PROGRAM="$1"
 if [ -z "$PROGRAM" ]; then
 	PROGRAM="$DEFAULTPROGRAM"
 fi
-echo "      Initializing..."
-AGENT="$(youtube-dl --dump-user-agent)"
+
 checkforcross()
 {
 	# Wait until the CROSS button is pressed.
@@ -28,9 +28,13 @@ checkforcross()
 	done
 }
 
+echo "      Initializing..."
 # Prefer wget, because it has less problems than curl.
-which wget >/dev/null
+CURL=curl
+WGET=wget
+which $WGET >/dev/null
 USE_WGET=$?
+USE_URL=0
 which valgrind >/dev/null
 USE_DBGPRG=$?
 #USE_DBGPRG=1
@@ -79,6 +83,10 @@ else
 echo "VIDEOFORMAT=$VIDEOFORMAT" >"$HOME/juhutube-cfg.txt"
 fi
 
+if [ "$AGENT" = "" ]; then
+	AGENT="$($YOUTUBEDL --dump-user-agent)"
+fi
+
 if [ -x "$PROGRAM" ]; then
 	RETVAL=""
 	while [ true ]; do
@@ -123,8 +131,8 @@ if [ -x "$PROGRAM" ]; then
 			fi
 			URLFILE="/tmp/url.$$"
 			rm -f "$URLFILE"
-			if [ -e "/proc/ps2pad" ]; then
-				youtube-dl -g -f $VIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE" &
+			if [ $USE_URL -eq 0 -a -e "/proc/ps2pad" ]; then
+				$YOUTUBEDL -g -f $VIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE" &
 				YDLPID=$!
 				checkforcross $YDLPID &
 				CHECKPID=$!
@@ -133,10 +141,26 @@ if [ -x "$PROGRAM" ]; then
 				URL="$(cat $URLFILE)"
 				RET=0
 			else
-				youtube-dl -g -f $VIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE"
+				if [ $USE_URL -ne 0 ]; then
+					if [ $USE_WGET -ne 0 ]; then
+						CURL_PARAM=
+						if [ "$SSL_CERT_PATH" != "" ]; then
+							CURL_PARAM="--capath $SSL_CERT_PATH"
+						fi
+						$CURL $CURL_PARAM "$DLURL?f=$VIDEOFORMAT&v=$VIDEOID" >"$URLFILE"
+					else
+						WGET_PARAM=
+						if [ "$SSL_CERT_PATH" != "" ]; then
+							WGET_PARAM="--ca-directory=$SSL_CERT_PATH"
+						fi
+						$WGET $WGET_PARAM -o /dev/null -O "$URLFILE" "$DLURL?f=$VIDEOFORMAT&v=$VIDEOID"
+					fi
+				else
+					$YOUTUBEDL -g -f $VIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE"
+				fi
 				RET=$?
 				if [ $RET -ne 0 -a "$VIDEOFORMAT" != "$DEFAULTVIDEOFORMAT" ]; then
-					youtube-dl -g -f $DEFAULTVIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE"
+					$YOUTUBEDL -g -f $DEFAULTVIDEOFORMAT --cookies=/tmp/ytcookie-$VIDEOID.txt https://www.youtube.com/watch?v=$VIDEOID >"$URLFILE"
 					RET=$?
 				fi
 
@@ -160,13 +184,13 @@ if [ -x "$PROGRAM" ]; then
 					if [ "$SSL_CERT_PATH" != "" ]; then
 						CURL_PARAM="--capath $SSL_CERT_PATH"
 					fi
-					curl $CURL_PARAM --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
+					$CURL $CURL_PARAM --user-agent "$AGENT" --cookie "/tmp/ytcookie-${VIDEOID}.txt" "$URL" | $PLAYER
 				else
 					WGET_PARAM=
 					if [ "$SSL_CERT_PATH" != "" ]; then
 						WGET_PARAM="--ca-directory=$SSL_CERT_PATH"
 					fi
-					wget $WGET_PARAM --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
+					$WGET $WGET_PARAM --user-agent="$AGENT" -o /dev/null -O - --load-cookies /tmp/ytcookie-${VIDEOID}.txt - "$URL" | $PLAYER
 				fi
 			else
 				echo "      Failed to get URL."
@@ -174,8 +198,8 @@ if [ -x "$PROGRAM" ]; then
 			rm -f "/tmp/ytcookie-${VIDEOID}.txt"
 		else
 			if [ "$RETVAL" = "5" ]; then
-				echo "      Updating youtube-dl"
-				youtube-dl -U
+				echo "      Updating $YOUTUBEDL"
+				$YOUTUBEDL -U
 			else
 				echo "      Stopped with $RETVAL ($CFG)"
 				break
