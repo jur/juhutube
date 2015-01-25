@@ -4376,6 +4376,13 @@ int gui_loop(gui_t *gui, int retval, int origgetstate, const char *videofile, co
 							retval = 0;
 							break;
 
+						case SDLK_POWER:
+							set_no_description(gui);
+							/* Power Off */
+							done = 4;
+							retval = 0;
+							break;
+
 						case SDLK_LEFT:
 							if (curstate == GUI_STATE_RUNNING) {
 								if (gui->statusmsg == NULL) {
