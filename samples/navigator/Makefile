@@ -63,9 +63,9 @@ install: all
 	mkdir -p "$(CHROOTDIR)$(PREFIX)/share/ytnavigator"
 	install -D pictures/*.jpg "$(CHROOTDIR)$(PREFIX)/share/ytnavigator/"
 
-$(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
+$(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS)) $(filter %.o,$(LDLIBS))
 	@mkdir -p $(BINDIR)
-	$(CC) $(LDFLAGS) -o $@ $^ $(filter-out %.a,$(LDLIBS))
+	$(CC) $(LDFLAGS) -o $@ $^ $(filter-out %.o,$(filter-out %.a,$(LDLIBS)))
 
 clean:
 	rm -rf $(BINDIR) $(OBJDIR) $(DEPDIR)

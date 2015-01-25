@@ -30,9 +30,9 @@ all: $(PROGRAM)
 install: all
 	install -D $(PROGRAM) "$(CHROOTDIR)$(PREFIX)/bin/"
 
-$(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS))
+$(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS)) $(filter %.o,$(LDLIBS))
 	@mkdir -p $(BINDIR)
-	$(CC) $(LDFLAGS) -o $@ $^ $(filter-out %.a,$(LDLIBS))
+	$(CC) $(LDFLAGS) -o $@ $^ $(filter-out %.o,$(filter-out %.a,$(LDLIBS)))
 
 clean:
 	rm -rf $(BINDIR) $(OBJDIR) $(DEPDIR)
