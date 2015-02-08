@@ -28,35 +28,35 @@ CPPFLAGS += -I$(LIBJTBASEDIR)/libjt/include
 LDFLAGS += -L$(LIBJTDIR)
 LDLIBS += $(LIBJT)
 
-PKGCONFIG ?= pkg-config
+PKG_CONFIG ?= pkg-config
 PKGS =
 
-ifeq ($(shell $(PKGCONFIG) --exists json-c; echo -n $$?),0)
+ifeq ($(shell $(PKG_CONFIG) --exists json-c; echo -n $$?),0)
 JSON = json-c
 else
 JSON = json
 endif
 
-ifneq ($(shell $(PKGCONFIG) --exists $(JSON); echo -n $$?),0)
+ifneq ($(shell $(PKG_CONFIG) --exists $(JSON); echo -n $$?),0)
 $(error $(JSON) not found)
 else
 PKGS += $(JSON)
 endif
 
-ifneq ($(shell $(PKGCONFIG) --exists libcurl; echo -n $$?),0)
+ifneq ($(shell $(PKG_CONFIG) --exists libcurl; echo -n $$?),0)
 $(error libcurl not found)
 else
 PKGS += libcurl
 endif
-ifneq ($(shell $(PKGCONFIG) --exists openssl; echo -n $$?),0)
+ifneq ($(shell $(PKG_CONFIG) --exists openssl; echo -n $$?),0)
 #$(error openssl not found)
 LDLIBS += -lssl
 else
 PKGS += openssl
 endif
 
-LDLIBS += $(shell $(PKGCONFIG) --libs $(PKGS))
-CPPFLAGS += $(shell $(PKGCONFIG) --cflags $(PKGS))
+LDLIBS += $(shell $(PKG_CONFIG) --libs $(PKGS))
+CPPFLAGS += $(shell $(PKG_CONFIG) --cflags $(PKGS))
 
 CHROOTDIR =
 PREFIX = /usr/local

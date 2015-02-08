@@ -26,24 +26,24 @@ ifneq ($(VERIFYCERT),yes)
 CPPFLAGS += -DNOVERIFYCERT
 endif
 
-ifneq ($(shell pkg-config --exists sdl; echo -n $$?),0)
+ifneq ($(shell $(PKG_CONFIG) --exists sdl; echo -n $$?),0)
 $(error sdl not found)
 else
 PKGS += sdl
 endif
-ifneq ($(shell pkg-config --exists SDL_image; echo -n $$?),0)
+ifneq ($(shell $(PKG_CONFIG) --exists SDL_image; echo -n $$?),0)
 $(error SDL_image not found)
 else
 PKGS += SDL_image
 endif
-ifneq ($(shell pkg-config --exists SDL_ttf; echo -n $$?),0)
+ifneq ($(shell $(PKG_CONFIG) --exists SDL_ttf; echo -n $$?),0)
 #$(error SDL_ttf not found)
 LDLIBS += -lSDL_ttf
 else
 PKGS += SDL_ttf
 endif
-CPPFLAGS += $(shell pkg-config --cflags $(PKGS))
-LDLIBS += $(shell pkg-config --libs $(PKGS))
+CPPFLAGS += $(shell $(PKG_CONFIG) --cflags $(PKGS))
+LDLIBS += $(shell $(PKG_CONFIG) --libs $(PKGS))
 
 .PHONY: test all clean
 
