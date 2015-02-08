@@ -33,7 +33,6 @@ PKGS =
 
 ifeq ($(shell $(PKGCONFIG) --exists json-c; echo -n $$?),0)
 JSON = json-c
-CPPFLAGS += -DJSONC
 else
 JSON = json
 endif

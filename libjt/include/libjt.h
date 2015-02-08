@@ -13,11 +13,7 @@
  */
 
 #include <curl/curl.h>
-#ifdef JSONC
-#include <json-c/json.h>
-#else
-#include <json/json.h>
-#endif
+#include <json.h>
 
 #ifndef is_error
 #define is_error(ptr) ((ptr) == NULL)
