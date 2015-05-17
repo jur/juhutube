@@ -57,11 +57,11 @@ endif
 all: $(PROGRAM)
 
 install: all
-	install -D $(PROGRAM) "$(CHROOTDIR)$(PREFIX)/bin/"
+	install -D $(PROGRAM) $(CHROOTDIR)$(PREFIX)/bin/
 	sed -i youtubeplayer.sh -e "s#DEFAULTPREFIX=.*\$$#DEFAULTPREFIX=\"$(PREFIX)\"#g"
 	install -D youtubeplayer.sh "$(CHROOTDIR)$(PREFIX)/bin/"
 	mkdir -p "$(CHROOTDIR)$(PREFIX)/share/ytnavigator"
-	install -D pictures/*.jpg "$(CHROOTDIR)$(PREFIX)/share/ytnavigator/"
+	install -D pictures/*.jpg $(CHROOTDIR)$(PREFIX)/share/ytnavigator/
 
 $(PROGRAM): $(OBJS) $(filter %.a,$(LDLIBS)) $(filter %.o,$(LDLIBS))
 	@mkdir -p $(BINDIR)
