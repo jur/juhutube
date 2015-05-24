@@ -436,4 +436,19 @@ int jt_free_transfer(jt_access_token_t *at);
  */
 char *jt_strdup(const char *text);
 
+/**
+ * Convert page number into page token.
+ *
+ * @returns pageToken, allocated memory must be deallocated with free() by th
+ *   caller.
+ */
+char *jt_get_page_token(int page);
+
+/**
+ * Convert a pageToken into a page number.
+ *
+ * @returns Page number.
+ */
+int jt_get_page_number(const char *pageToken);
+
 #endif

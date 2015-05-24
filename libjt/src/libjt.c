@@ -1774,3 +1774,61 @@ int jt_free_transfer(jt_access_token_t *at)
 		return JT_ERROR;
 	}
 }
+
+char *jt_get_page_token(int page)
+{
+	const char d0[] = "AEIMQUYcgkosw048";
+	const char direction[] = "AA";
+
+	char pageToken[7];
+	int flag = 0;
+	int d1c;
+
+	if (page > 0x7F) {
+		flag = 0x80;
+	}
+	d1c = (page & 0x7F) | flag;
+
+	pageToken[0] = 'C';
+	pageToken[1] = 'A' + ((d1c / (sizeof(d0) - 1)) % 26);
+	pageToken[2] = d0[page % (sizeof(d0) - 1)];
+	if ((page >> 7) == 0) {
+		pageToken[3] = 'Q';
+	} else {
+		pageToken[3] = 'A' + ((page >> 7) % 26);
+	}
+	pageToken[4] = direction[0];
+	pageToken[5] = direction[1];
+	pageToken[6] = 0;
+
+	return strdup(pageToken);
+}
+
+int jt_get_page_number(const char *pageToken)
+{
+	int page;
+	const char d0[] = "AEIMQUYcgkosw048";
+	int i;
+
+	page = 1;
+
+	if ((pageToken != NULL) && (pageToken[0] != 0)
+		&& (pageToken[1] != 0)
+		&& (pageToken[2] != 0)) {
+		for (i = 0; i < sizeof(d0); i++) {
+			if (d0[i] == pageToken[2]) {
+				page = i;
+				break;
+			}
+		}
+		page |= (pageToken[1] - 'A') << 4;
+
+		if ((pageToken[3] == 0) || (pageToken[3] == 'Q')) {
+			return page;
+		}
+		page &= 0x7F;
+		page += (pageToken[3] - 'A') << 7;
+	}
+
+	return page;
+}
