@@ -2929,6 +2929,16 @@ static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse
 					cat->vidnr = vidnr;
 					if (i == 0) {
 						cat->subscriptionPrevPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "prevPageToken"));
+						if ((cat->subscriptionPrevPageToken == NULL) && (resultsPerPage != 0)) {
+							int page;
+
+							page = jt_get_page_number(pageToken);
+							page -= resultsPerPage;
+
+							if (page > 0) {
+								last->subscriptionPrevPageToken = jt_get_page_token(page);
+							}
+						}
 					}
 				}
 			}
@@ -2942,6 +2952,16 @@ static int update_subscriptions(gui_t *gui, gui_cat_t *selected_cat, int reverse
 				}
 
 				last->subscriptionNextPageToken = jt_strdup(jt_json_get_string_by_path(gui->at, "nextPageToken"));
+				if ((last->subscriptionNextPageToken == NULL) && (resultsPerPage != 0)) {
+					int page;
+
+					page = jt_get_page_number(pageToken);
+					page += resultsPerPage;
+
+					if (page < totalResults) {
+						last->subscriptionNextPageToken = jt_get_page_token(page);
+					}
+				}
 			}
 		}
 		jt_free_transfer(gui->at);

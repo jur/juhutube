@@ -28,9 +28,13 @@
 #define KEY_FILE ".youtubekey"
 #define SECRET_FILE ".client_secret.json"
 
+#if 1
 #define dprintf(args...) \
 	do { \
 	} while(0)
+#else
+#define dprintf printf
+#endif
 
 #define LOG_ERROR(format, args...) \
 	do { \
@@ -175,8 +179,10 @@ int update_subscriptions(jt_access_token_t *at)
 	subscriptions = NULL;
 
 	do {
+		char *pageToken;
+
 		rv = jt_get_my_subscriptions(at, nextPageToken);
-		free(nextPageToken);
+		pageToken = nextPageToken;
 		nextPageToken = NULL;
 
 		if (rv == JT_OK) {
@@ -186,7 +192,7 @@ int update_subscriptions(jt_access_token_t *at)
 			if (rv != JT_OK) {
 				totalResults = 0;
 			}
-			dprintf("totalResults rv = %d %s value = %d\n", rv, jt_get_error_code(rv), totalResults);
+			dprintf("subscriptions totalResults rv = %d %s value = %d\n", rv, jt_get_error_code(rv), totalResults);
 
 			resize_subscriptions(totalResults);
 
@@ -198,6 +204,17 @@ int update_subscriptions(jt_access_token_t *at)
 
 			nextPageToken = jt_strdup(jt_json_get_string_by_path(at, "nextPageToken"));
 			dprintf("nextPageToken %s\n", nextPageToken);
+			if ((nextPageToken == NULL) && (resultsPerPage != 0)) {
+				int page;
+
+				page = jt_get_page_number(pageToken);
+				page += resultsPerPage;
+
+				if (page < totalResults) {
+					nextPageToken = jt_get_page_token(page);
+					dprintf("fixed nextPageToken %s\n", nextPageToken);
+				}
+			}
 
 			for (i = 0; (i < resultsPerPage) && (subnr < totalResults); i++) {
 				if (subscriptions[subnr].title != NULL) {
@@ -221,6 +238,10 @@ int update_subscriptions(jt_access_token_t *at)
 			if (rv != JT_OK) {
 				printf("Failed to free the JSON object.\n");
 			}
+		}
+		if (pageToken != NULL) {
+			free(pageToken);
+			pageToken = NULL;
 		}
 	} while(nextPageToken != NULL);
 
