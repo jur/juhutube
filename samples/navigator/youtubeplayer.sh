@@ -1,6 +1,6 @@
 #!/bin/ash
 #set -x
-DEFAULTPREFIX="$HOME"
+DEFAULTPREFIX="/"
 DEFAULTSHAREDIR="$DEFAULTPREFIX/share/ytnavigator"
 SHAREDIR="$2"
 DEFAULTVIDEOFORMAT=5
@@ -59,10 +59,15 @@ if [ $? -eq 0 ]; then
 		PLAYER="ffplay -fs -autoexit -"
 	fi
 else
-	if [ "$DISPLAY" = "" ]; then
-		PLAYER="mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -"
+	which playmp4 >/dev/null
+	if [ $? -eq 0 ]; then
+		PLAYER="playmp4 /proc/self/fd/0"
 	else
-		PLAYER="mplayer -cache 1024 -"
+		if [ "$DISPLAY" = "" ]; then
+			PLAYER="mplayer -vo sdl -ao sdl -cache 1024 -hardframedrop -"
+		else
+			PLAYER="mplayer -cache 1024 -"
+		fi
 	fi
 fi
 
